@@ -1,38 +1,43 @@
-cabal-version: 2.2
-
-name:           bag-of-holding
-version:        1.0.0
-synopsis:       A terminal-based wallet for Chainweb.
-description:    A terminal-based wallet for Chainweb.
-homepage:       https://gitlab.com/fosskers/bag-of-holding
-author:         Colin Woodbury
-maintainer:     colin@fosskers.ca
-copyright:      2019 Colin Woodbury
-license:        BSD-3-Clause
-license-file:   LICENSE
-build-type:     Simple
-
+cabal-version:      2.2
+name:               bag-of-holding
+version:            1.0.0
+synopsis:           A terminal-based wallet for Chainweb.
+description:        A terminal-based wallet for Chainweb.
+homepage:           https://gitlab.com/fosskers/bag-of-holding
+author:             Colin Woodbury
+maintainer:         colin@fosskers.ca
+copyright:          2019 Colin Woodbury
+license:            BSD-3-Clause
+license-file:       LICENSE
+build-type:         Simple
 extra-source-files:
-    README.md
-    ChangeLog.md
+  README.md
+  ChangeLog.md
 
 common commons
-  default-language: Haskell2010
+  default-language:   Haskell2010
+  default-extensions: NoImplicitPrelude
   ghc-options:
-    -Wall
-    -Werror
-    -Wcompat
-    -Wpartial-fields
-    -Wincomplete-record-updates
-    -Wincomplete-uni-patterns
-    -Widentities
-  build-depends:
-      base >= 4.7 && < 5
+    -Wall -Werror -Wcompat -Wpartial-fields -Wincomplete-record-updates
+    -Wincomplete-uni-patterns -Widentities
+
+  build-depends:      base >=4.7 && <5
 
 library
-  import: commons
-  hs-source-dirs: lib
+  import:          commons
+  hs-source-dirs:  lib
   exposed-modules: Holding
   build-depends:
-      pact ^>= 3.2
-    , rio ^>= 0.1
+    , pact  ^>=3.2
+    , rio   ^>=0.1
+
+test-suite boh-tests
+  import:         commons
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is:        Test.hs
+  ghc-options:    -threaded -with-rtsopts=-N
+  build-depends:
+    , bag-of-holding
+    , tasty             >=1.2
+    , tasty-quickcheck  >=0.10
