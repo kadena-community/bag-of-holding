@@ -1,0 +1,17 @@
+resolver: lts-14.4
+
+extra-deps:
+  # --- Transitive Pact Dependencies --- #
+  - ed25519-donna-0.1.1
+  - sbv-8.2
+  - swagger2-2.3.1.1
+
+  # --- Forced Downgrades --- #
+  - megaparsec-6.5.0
+  - neat-interpolation-0.3.2.2  # Due to megaparsec 7
+
+  # --- Custom Pins --- #
+  - github: kadena-io/pact
+    commit: 5f68bba024c4a986300b1d31a5d5ff52ef94697d
+  - github: kadena-io/thyme
+    commit: 6ee9fcb026ebdb49b810802a981d166680d867c9

@@ -1,0 +1,38 @@
+cabal-version: 2.2
+
+name:           bag-of-holding
+version:        1.0.0
+synopsis:       A terminal-based wallet for Chainweb.
+description:    A terminal-based wallet for Chainweb.
+homepage:       https://gitlab.com/fosskers/bag-of-holding
+author:         Colin Woodbury
+maintainer:     colin@fosskers.ca
+copyright:      2019 Colin Woodbury
+license:        BSD-3-Clause
+license-file:   LICENSE
+build-type:     Simple
+
+extra-source-files:
+    README.md
+    ChangeLog.md
+
+common commons
+  default-language: Haskell2010
+  ghc-options:
+    -Wall
+    -Werror
+    -Wcompat
+    -Wpartial-fields
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Widentities
+  build-depends:
+      base >= 4.7 && < 5
+
+library
+  import: commons
+  hs-source-dirs: lib
+  exposed-modules: Holding
+  build-depends:
+      pact ^>= 3.2
+    , rio ^>= 0.1
