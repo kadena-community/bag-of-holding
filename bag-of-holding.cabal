@@ -37,6 +37,7 @@ library
   build-depends:
     , chainweb        ^>=0.2
     , pact            ^>=3.2
+    , servant         >=0.16
     , servant-client  >=0.16
 
 test-suite boh-tests
