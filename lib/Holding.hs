@@ -2,6 +2,8 @@ module Holding
   ( -- * Public / Private Keys
     Keys(..)
   , keys
+  , keysToFile
+  , keysFromFile
   ) where
 
 import           Data.Aeson
@@ -14,8 +16,7 @@ import           RIO
 {- OBJECTIVES
 
 - [x] Generate a key pair.
-- [ ] Export a key pair.
-- [ ] Import a key pair.
+- [x] Export/Import a key pair.
 
 -}
 
@@ -23,17 +24,10 @@ import           RIO
 
 The Pact Haskell codebase is quite undocumented.
 
-genKeyPair :: IO (PublicKey, PrivateKey)
-getPublicKey :: PrivateKey -> PublicKey
-genKeyPair :: SomeScheme -> IO SomeKeyPair
-mkKeyPairs :: [ApiKeyPair] -> IO [SomeKeyPair]
 mkCommand :: (ToJSON m, ToJSON c) => [SomeKeyPair] -> m -> Text -> PactRPC c -> IO (Command ByteString)
 
 sign :: SomeKeyPair -> Hash -> IO ByteString
 verify :: SomeScheme -> Hash -> PublicKeyBS -> SignatureBS -> Bool
-getPublic :: SomeKeyPair -> ByteString
-getPrivate :: SomeKeyPair -> ByteString
-formatPublicKey :: SomeKeyPair -> ByteString
 
 -}
 
@@ -57,3 +51,9 @@ instance FromJSON Keys where
 -- This uses the ED25519 scheme.
 keys :: IO Keys
 keys = Keys <$> P.genKeyPair P.defaultScheme
+
+keysToFile :: FilePath -> Keys -> IO ()
+keysToFile fp = encodeFile fp
+
+keysFromFile :: FilePath -> IO (Maybe Keys)
+keysFromFile = decodeFileStrict'
