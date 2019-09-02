@@ -16,28 +16,33 @@ extra-source-files:
 
 common commons
   default-language:   Haskell2010
-  default-extensions: NoImplicitPrelude
+  default-extensions:
+    NoImplicitPrelude
+    LambdaCase
+    OverloadedStrings
+
   ghc-options:
     -Wall -Werror -Wcompat -Wpartial-fields -Wincomplete-record-updates
-    -Wincomplete-uni-patterns -Widentities
+    -Wincomplete-uni-patterns -Widentities -funclutter-valid-hole-fits
 
-  build-depends:      base >=4.7 && <5
+  build-depends:
+    , base  >=4.7 && <5
+    , rio   ^>=0.1
 
 library
   import:          commons
   hs-source-dirs:  lib
   exposed-modules: Holding
   build-depends:
-    , pact  ^>=3.2
-    , rio   ^>=0.1
+    , aeson  >=1.4
+    , pact   ^>=3.2
 
-test-suite boh-tests
-  import:         commons
-  type:           exitcode-stdio-1.0
-  hs-source-dirs: test
-  main-is:        Test.hs
-  ghc-options:    -threaded -with-rtsopts=-N
-  build-depends:
-    , bag-of-holding
-    , tasty             >=1.2
-    , tasty-quickcheck  >=0.10
+-- test-suite boh-tests
+--   import:         commons
+--   type:           exitcode-stdio-1.0
+--   hs-source-dirs: test
+--   main-is:        Test.hs
+--   ghc-options:    -threaded -with-rtsopts=-N
+--   build-depends:
+--     , bag-of-holding
+--     , tasty           ^>=1.2
