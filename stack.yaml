@@ -1,17 +1,35 @@
 resolver: lts-14.4
 
+ghc-options: {"$locals": -ddump-to-file -ddump-hi}
+
 extra-deps:
   # --- Transitive Pact Dependencies --- #
   - ed25519-donna-0.1.1
+  - megaparsec-6.5.0
+  - neat-interpolation-0.3.2.2  # Due to megaparsec 7
   - sbv-8.2
   - swagger2-2.3.1.1
 
-  # --- Forced Downgrades --- #
-  - megaparsec-6.5.0
-  - neat-interpolation-0.3.2.2  # Due to megaparsec 7
+  # --- Transitive Chainweb Dependencies --- #
+  # Most of this can be removed once a `chainweb-types` repo is created.
+  - QuickCheck-GenT-0.2.0
+  - bloomfilter-2.0.1.0
+  - digraph-0.1.0.2
+  - fake-0.1.1.2
+  - loglevel-0.1.0.0
+  - merkle-log-0.1.0.0
+  - paths-0.2.0.0
+  - strict-tuple-0.1.2
+  - these-0.8.1
+  - tls-1.5.1
+  - yet-another-logger-0.3.1
 
   # --- Custom Pins --- #
+  - github: kadena-io/chainweb-node
+    commit: e764730f76fbd4afed95c7d3d0e243a4deb6344e  # Custom branch
   - github: kadena-io/pact
-    commit: 643b8e06a96d6f2e424dcc09849d99fb55e18b82
+    commit: 643b8e06a96d6f2e424dcc09849d99fb55e18b82  # Yet-unmerged PR
   - github: kadena-io/thyme
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
+  - github: kadena-io/chainweb-storage
+    commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a

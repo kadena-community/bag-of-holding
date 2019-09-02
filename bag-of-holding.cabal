@@ -22,7 +22,7 @@ common commons
     OverloadedStrings
 
   ghc-options:
-    -Wall -Werror -Wcompat -Wpartial-fields -Wincomplete-record-updates
+    -Wall -Wcompat -Wpartial-fields -Wincomplete-record-updates
     -Wincomplete-uni-patterns -Widentities -funclutter-valid-hole-fits
 
   build-depends:
@@ -34,7 +34,10 @@ library
   import:          commons
   hs-source-dirs:  lib
   exposed-modules: Holding
-  build-depends:   pact ^>=3.2
+  build-depends:
+    , chainweb        ^>=0.2
+    , pact            ^>=3.2
+    , servant-client  >=0.16
 
 test-suite boh-tests
   import:         commons
