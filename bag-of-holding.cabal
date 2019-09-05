@@ -18,7 +18,6 @@ common commons
   default-language:   Haskell2010
   default-extensions:
     NoImplicitPrelude
-    LambdaCase
     OverloadedStrings
 
   ghc-options:
@@ -26,7 +25,7 @@ common commons
     -Wincomplete-uni-patterns -Widentities -funclutter-valid-hole-fits
 
   build-depends:
-    , aeson  >=1.4
+    , aeson  ^>=1.4
     , base   >=4.7 && <5
     , rio    ^>=0.1
 
@@ -35,10 +34,15 @@ library
   hs-source-dirs:  lib
   exposed-modules: Holding
   build-depends:
-    , chainweb        ^>=0.2
-    , pact            ^>=3.2
-    , servant         >=0.16
-    , servant-client  >=0.16
+    , aeson-pretty     ^>=0.8
+    , chainweb         ^>=0.2
+    , errors           ^>=2.3
+    , http-client      ^>=0.6
+    , http-client-tls  ^>=0.3
+    , pact             ^>=3.2
+    , prettyprinter    ^>=1.2
+    , servant          ^>=0.16
+    , servant-client   ^>=0.16
 
 test-suite boh-tests
   import:         commons

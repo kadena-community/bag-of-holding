@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE TypeOperators       #-}
@@ -5,61 +6,76 @@
 module Holding
   ( -- * Types
     -- ** Public / Private Keys
-    Keys(..)
-  , keys
-  , keysToFile
-  , keysFromFile
+    Keys
+  , keys, keysToFile, keysFromFile
+    -- ** Pact Code
+  , PactCode
+  , code, prettyCode
+  , codeFromFile
+  , Transaction
+  , transaction
+    -- ** Pact Communication
+  , Account(..)
+  , meta
+  , Receipt
+  , TXResult(..)
     -- * Calling Pact
     -- | It's assumed that the Pact instance in question lives on a running
     -- Chainweb network.
+
+    -- ** Endpoints
+    -- | To call a running Chainweb instance.
   , send
+  , poll
+  , listen
+  , local
+    -- ** Coin Contract Functions
+    -- | Known functions from the Coin Contract that are built into the Genesis
+    -- Blocks.
+  , Sender(..), Receiver(..)
+  , balance
+  , transfer
+    -- * Misc.
+  , cuteError
+  , cute
   ) where
 
 import           Chainweb.Pact.RestAPI (pactApi)
+import           Chainweb.Time
 import           Chainweb.Version
+import           Control.Error.Util (hush)
 import           Data.Aeson
+import           Data.Aeson.Encode.Pretty (encodePretty)
 import           Data.Aeson.Types (prependFailure, typeMismatch)
 import           Data.Singletons
+import           Data.Text.Prettyprint.Doc (defaultLayoutOptions, layoutPretty)
+import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
+import           Network.HTTP.Client (newManager)
+import           Network.HTTP.Client.TLS (tlsManagerSettings)
+import qualified Pact.ApiReq as P
+import qualified Pact.Compile as P
+import qualified Pact.Parse as P
 import qualified Pact.Types.API as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Crypto as P
 import qualified Pact.Types.Hash as P
-import           RIO
+import qualified Pact.Types.Pretty as P
+import qualified Pact.Types.Runtime as P
+import           RIO hiding (local, poll)
+import qualified RIO.HashMap as HM
+import qualified RIO.NonEmpty as NEL
+import qualified RIO.Text as T
 import           Servant.API
-import           Servant.Client (ClientM, client)
+import           Servant.Client
+import           Text.Printf (printf)
 
 ---
-
-{- OBJECTIVES
-
-- [x] Generate a key pair.
-- [x] Export/Import a key pair.
-- [x] What endpoint(s) do I send to?
-- [x] Depend on Chainweb.
-- [x] Pact client calls.
-- [ ] How to form a `SubmitBatch`?
-- [ ] Send arithemetic.
-- [ ] Transaction signing?
-- [ ] Create coin account.
-- [ ] Data type for Account
-
--}
-
-{- OTHER NOTES
-
-The Pact Haskell codebase is quite undocumented.
-
-mkCommand :: (ToJSON m, ToJSON c) => [SomeKeyPair] -> m -> Text -> PactRPC c -> IO (Command ByteString)
-
-sign :: SomeKeyPair -> Hash -> IO ByteString
-verify :: SomeScheme -> Hash -> PublicKeyBS -> SignatureBS -> Bool
-
--}
 
 --------------------------------------------------------------------------------
 -- Key Pairs
 
-newtype Keys = Keys { keysOf :: P.SomeKeyPair }
+-- | A public/private key pair to associate and sign Pact `Transaction`s.
+newtype Keys = Keys P.SomeKeyPair
 
 instance ToJSON Keys where
   toJSON (Keys ks) = object [ "public" .= pub ks, "private" .= prv ks ]
@@ -83,37 +99,103 @@ keys = Keys <$> P.genKeyPair P.defaultScheme
 keysToFile :: FilePath -> Keys -> IO ()
 keysToFile fp = encodeFile fp
 
+-- | Will fail with `Nothing` if the `Keys` failed to parse from the expected
+-- format.
 keysFromFile :: FilePath -> IO (Maybe Keys)
 keysFromFile = decodeFileStrict'
 
 --------------------------------------------------------------------------------
+-- Pact Code
+
+data PactCode = PactCode { rawOf :: !Text } --, codeOf :: ![P.Term P.Name] }
+
+instance Show PactCode where
+  show = T.unpack . prettyCode
+
+-- | Prove that some raw `Text` is real Pact code.
+code :: Text -> Maybe PactCode
+code t = hush (P.parseExprs t) >>= hush . P.compileExps P.mkEmptyInfo >> pure (PactCode t)
+
+-- | Pretty-print some `PactCode`.
+prettyCode :: PactCode -> Text
+-- prettyCode = renderStrict . layoutPretty defaultLayoutOptions . P.pretty . codeOf
+-- prettyCode = T.pack . P.renderPrettyString P.RPlain . codeOf
+prettyCode = rawOf
+
+-- | Will fail with `Nothing` if the file couldn't be parsed as legal Pact.
+codeFromFile :: FilePath -> IO (Maybe PactCode)
+codeFromFile = fmap code . readFileUtf8
+
+-- | A parsed and signed transaction, ready to be sent to a running Chainweb
+-- instance.
+newtype Transaction = Transaction (P.Command Text)
+
+-- | Form some parsed `PactCode` into a `Transaction` that's sendable to a running
+-- Chainweb instance.
+transaction :: PactCode -> Keys -> P.PublicMeta -> IO Transaction
+transaction (PactCode pc) (Keys ks) pm =
+  Transaction <$> P.mkExec (T.unpack pc) Null pm [ks] Nothing
+
+--------------------------------------------------------------------------------
+-- Pact Communication
+
+-- | A "Coin Contract" account.
+newtype Account = Account Text
+
+-- TODO Come up with a sane default `GasPrice`.
+-- TODO What is the difference between the two gas values?
+-- | To feed to the `transaction` function.
+meta :: Account -> P.ChainId -> IO P.PublicMeta
+meta (Account t) cid = do
+  Time (TimeSpan (Micros m)) <- getCurrentTimeIntegral
+
+  let tct :: P.TxCreationTime
+      tct = fromIntegral $ m `div` 1000000
+
+  pure $ P.PublicMeta cid t (P.GasLimit 100) (P.GasPrice 0.00000001) (P.TTLSeconds 3600) tct
+
+-- | Confirmation that a `Transaction` has been accepted by the network. This
+-- can be used again as input to other calls to inspect the final results of
+-- that `Transaction`.
+newtype Receipt = Receipt P.RequestKey
+
+-- | The final result/outcome of some sent `Transaction`.
+newtype TXResult = TXResult (P.CommandResult P.Hash) deriving (Show)
+
+--------------------------------------------------------------------------------
 -- Endpoint Calls
 
-{- SENDING COMMANDS
+-- | Submit a `Transaction` to Chainweb. This will cost gas, and the associated
+-- `Account` will be charged.
+send :: ChainwebVersion -> ChainId -> Transaction -> ClientM Receipt
+send v cid (Transaction tx) = case clients v cid of
+  f :<|> _ -> Receipt . NEL.head . P._rkRequestKeys <$> f (P.SubmitBatch $ pure tx)
 
-type ApiV1API = "api" :> ("v1" :> (ApiSend :<|> (ApiPoll :<|> (ApiListen :<|> ApiLocal))))
+-- | A quick peek into the status of a `Transaction`. Unlike `listen`, this is
+-- non-blocking and so will always return right away, even when the
+-- `Transaction` has not completed.
+poll :: ChainwebVersion -> ChainId -> Receipt -> ClientM (Maybe TXResult)
+poll v cid (Receipt rk) = case clients v cid of
+  _ :<|> f :<|> _ -> g <$> f (P.Poll $ pure rk)
+  where
+    g :: P.PollResponses -> Maybe TXResult
+    g (P.PollResponses hm) = TXResult <$> HM.lookup rk hm
 
-type ApiSend = "send" :> (ReqBody '[JSON] SubmitBatch :> Post '[JSON] RequestKeys)
-newtype SubmitBatch = SubmitBatch { _sbCmds :: NonEmpty (Command Text) }
+-- | Do a blocking call to wait for the results corresponding to some `Receipt.`
+-- Might time out, in which case `Nothing` is returned. Should return quickly
+-- for `Transactions` which have already completed.
+listen :: ChainwebVersion -> ChainId -> Receipt -> ClientM (Maybe TXResult)
+listen v cid (Receipt rk) = case clients v cid of
+  _ :<|> _ :<|> f :<|> _ -> g <$> f (P.ListenerRequest rk)
+  where
+    g :: P.ListenResponse -> Maybe TXResult
+    g (P.ListenTimeout _)   = Nothing
+    g (P.ListenResponse cr) = Just $ TXResult cr
 
-type ApiPoll = "poll" :> (ReqBody '[JSON] Poll :> Post '[JSON] PollResponses)
-newtype Poll = Poll { _pRequestKeys :: NonEmpty RequestKey }
-
-type ApiListen = "listen" :> (ReqBody '[JSON] ListenerRequest :> Post '[JSON] ListenResponse)
-newtype ListenerRequest = ListenerRequest { _lrListen :: RequestKey }
-
-type ApiLocal = "local" :> (ReqBody '[JSON] (Command Text) :> Post '[JSON] (CommandResult Hash))
-data Command a = Command
-  { _cmdPayload :: !a
-  , _cmdSigs :: ![UserSig]
-  , _cmdHash :: !PactHash
-  }
-
--}
-
-send :: ChainwebVersion -> ChainId -> P.SubmitBatch -> ClientM P.RequestKeys
-send v cid = case clients v cid of
-  f :<|> _ :<|> _ :<|> _ -> f
+-- | A non-blocking `Transaction` that can't write changes and spends no gas.
+local :: ChainwebVersion -> ChainId -> Transaction -> ClientM TXResult
+local v cid (Transaction tx) = case clients v cid of
+  _ :<|> _ :<|> _ :<|> f -> TXResult <$> f tx
 
 clients
   :: ChainwebVersion
@@ -124,3 +206,59 @@ clients
   :<|> (P.Command Text -> ClientM (P.CommandResult P.Hash))
 clients (FromSing (SChainwebVersion :: Sing v)) (FromSing (SChainId :: Sing cid)) =
   client (pactApi @v @cid)
+
+--------------------------------------------------------------------------------
+-- Coin Contract Functions
+
+-- | The sender `Account` in a coin transfer.
+newtype Sender = Sender Account
+
+-- | The receiver `Account` in a coin transfer.
+newtype Receiver = Receiver Account
+
+-- | The @coin.account-balance@ function.
+balance :: Account -> Maybe PactCode
+balance (Account a) = code . T.pack $ printf "(coin.account-balance \"%s\")" a
+
+-- | The @coin.transfer@ function.
+transfer :: Sender -> Receiver -> Double -> Maybe PactCode
+transfer (Sender (Account s)) (Receiver (Account r)) d =
+  code . T.pack $ printf "(coin.transfer \"%s\" \"%s\" %f)" s r d
+
+--------------------------------------------------------------------------------
+-- Misc.
+
+-- | Render the `PactError` as pretty-printed JSON.
+cuteError :: P.PactError -> Text
+cuteError = T.decodeUtf8With lenientDecode . toStrictBytes . encodePretty . toJSON
+
+cute :: P.Doc -> Text
+cute = renderStrict . layoutPretty defaultLayoutOptions
+
+work :: IO ()
+work = keysFromFile "colin.json" >>= \case
+  Nothing -> traceIO "Couldn't read key file"
+  -- Just ks -> case transfer (Sender acc) (Receiver $ Account "doug") 1 of
+  Just ks -> case balance acc of
+    Nothing -> traceIO "Couldn't parse Pact code"
+    Just c  -> do
+      env <- ClientEnv <$> newManager tlsManagerSettings <*> pure url <*> pure Nothing
+      m   <- meta acc "0"
+      tx  <- transaction c ks m
+      runClientM (go tx) env >>= traceShowIO
+  where
+    v :: ChainwebVersion
+    v = Testnet02
+
+    cid :: ChainId
+    cid = unsafeChainId 0
+
+    url :: BaseUrl
+    url = BaseUrl Https "us1.testnet.chainweb.com" 443 ""
+
+    acc :: Account
+    acc = Account "colin"
+
+    -- go :: Transaction -> ClientM P.ListenResponse
+    -- go = send v cid >=> listen v cid
+    go = local v cid
