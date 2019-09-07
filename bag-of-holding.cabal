@@ -28,6 +28,9 @@ common commons
     , aeson           ^>=1.4
     , base            >=4.7  && <5
     , chainweb        ^>=0.2
+    , errors          ^>=2.3
+    , generic-lens    >=1.1  && <1.3
+    , microlens       ^>=0.4
     , rio             ^>=0.1
     , servant-client  ^>=0.16
 
@@ -37,7 +40,6 @@ library
   exposed-modules: Holding
   build-depends:
     , aeson-pretty   ^>=0.8
-    , errors         ^>=2.3
     , pact           ^>=3.2
     , prettyprinter  ^>=1.2
     , servant        ^>=0.16
@@ -52,8 +54,8 @@ executable boh
     , brick                 >=0.47 && <0.50
     , http-client           ^>=0.6
     , http-client-tls       ^>=0.3
-    , optparse-applicative  >=0.14
-    , transformers          >=0.5
+    , optparse-applicative  ^>=0.14
+    , transformers          ^>=0.5
 
 -- test-suite boh-tests
 --   import:         commons

@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE DerivingStrategies  #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications    #-}
@@ -20,6 +22,7 @@ module Holding
   , txTime
   , Receipt
   , TXResult(..)
+  , pactValue
     -- * Calling Pact
     -- | It's assumed that the Pact instance in question lives on a running
     -- Chainweb network.
@@ -48,9 +51,11 @@ import           Control.Error.Util (hush)
 import           Data.Aeson
 import           Data.Aeson.Encode.Pretty (encodePretty)
 import           Data.Aeson.Types (prependFailure, typeMismatch)
+import           Data.Generics.Wrapped
 import           Data.Singletons
 import           Data.Text.Prettyprint.Doc (defaultLayoutOptions, layoutPretty)
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
+import           Lens.Micro (Traversal', _Right)
 import qualified Pact.ApiReq as P
 import qualified Pact.Compile as P
 import qualified Pact.Parse as P
@@ -58,6 +63,7 @@ import qualified Pact.Types.API as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Crypto as P
 import qualified Pact.Types.Hash as P
+import qualified Pact.Types.PactValue as P
 import qualified Pact.Types.Pretty as P
 import qualified Pact.Types.Runtime as P
 import           RIO hiding (local, poll)
@@ -191,7 +197,12 @@ txTime = do
 newtype Receipt = Receipt P.RequestKey
 
 -- | The final result/outcome of some sent `Transaction`.
-newtype TXResult = TXResult (P.CommandResult P.Hash) deriving (Show)
+newtype TXResult = TXResult (P.CommandResult P.Hash)
+  deriving stock (Generic)
+
+-- | Attempt to pull a real `P.PactValue` from some returned `TXResult`.
+pactValue :: Traversal' TXResult P.PactValue
+pactValue = _Unwrapped . P.crResult . _Unwrapped . _Right
 
 --------------------------------------------------------------------------------
 -- Endpoint Calls
