@@ -25,32 +25,43 @@ common commons
     -Wincomplete-uni-patterns -Widentities -funclutter-valid-hole-fits
 
   build-depends:
-    , aeson  ^>=1.4
-    , base   >=4.7 && <5
-    , rio    ^>=0.1
+    , aeson           ^>=1.4
+    , base            >=4.7  && <5
+    , chainweb        ^>=0.2
+    , rio             ^>=0.1
+    , servant-client  ^>=0.16
 
 library
   import:          commons
   hs-source-dirs:  lib
   exposed-modules: Holding
   build-depends:
-    , aeson-pretty     ^>=0.8
-    , chainweb         ^>=0.2
-    , errors           ^>=2.3
-    , http-client      ^>=0.6
-    , http-client-tls  ^>=0.3
-    , pact             ^>=3.2
-    , prettyprinter    ^>=1.2
-    , servant          ^>=0.16
-    , servant-client   ^>=0.16
+    , aeson-pretty   ^>=0.8
+    , errors         ^>=2.3
+    , pact           ^>=3.2
+    , prettyprinter  ^>=1.2
+    , servant        ^>=0.16
 
-test-suite boh-tests
+executable boh
   import:         commons
-  type:           exitcode-stdio-1.0
-  hs-source-dirs: test
-  main-is:        Test.hs
   ghc-options:    -threaded -with-rtsopts=-N
+  hs-source-dirs: exec
+  main-is:        BOH.hs
   build-depends:
     , bag-of-holding
-    , tasty           ^>=1.2
-    , tasty-hunit     ^>=0.10
+    , brick                 >=0.47 && <0.50
+    , http-client           ^>=0.6
+    , http-client-tls       ^>=0.3
+    , optparse-applicative  >=0.14
+    , transformers          >=0.5
+
+-- test-suite boh-tests
+--   import:         commons
+--   type:           exitcode-stdio-1.0
+--   hs-source-dirs: test
+--   main-is:        Test.hs
+--   ghc-options:    -threaded -with-rtsopts=-N
+--   build-depends:
+--     , bag-of-holding
+--     , tasty           ^>=1.2
+--     , tasty-hunit     ^>=0.10

@@ -17,6 +17,7 @@ module Holding
     -- ** Pact Communication
   , Account(..)
   , meta
+  , txTime
   , Receipt
   , TXResult(..)
     -- * Calling Pact
@@ -50,8 +51,6 @@ import           Data.Aeson.Types (prependFailure, typeMismatch)
 import           Data.Singletons
 import           Data.Text.Prettyprint.Doc (defaultLayoutOptions, layoutPretty)
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
-import           Network.HTTP.Client (newManager)
-import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import qualified Pact.ApiReq as P
 import qualified Pact.Compile as P
 import qualified Pact.Parse as P
@@ -71,24 +70,53 @@ import           Text.Printf (printf)
 
 ---
 
+{- SCOPE
+
+DO:
+- Manage keys.
+- Allow single-chain transfers, cross-chain transfers, and balance checks (single-sig only).
+- Manage active `RequestKeys` in a sane way.
+- Allow short, custom TXs to be written.
+- Track health of the bootstrap nodes.
+- Pretty-print the results of TXs.
+- Show a history of recent TXs.
+- LISTEN ON PORT 9467 FOR SIGNING TXS IN DAPPS! HAVE MANUAL CONFIRMATION WITHIN WALLET!
+- Bare-bones REPL mode that sends gasless TXs to `local/`.
+
+DON'T:
+- Be a module/transaction explorer.
+- List existing accounts.
+
+-}
+
+{- OBJECTIVES
+
+- [ ] Support for "pacts" (to enable X-chain transfers)
+- [ ] (post launch) Estimate an optimal GasPrice
+
+-}
+
 --------------------------------------------------------------------------------
 -- Key Pairs
 
 -- | A public/private key pair to associate and sign Pact `Transaction`s.
 newtype Keys = Keys P.SomeKeyPair
 
-instance ToJSON Keys where
-  toJSON (Keys ks) = object [ "public" .= pub ks, "private" .= prv ks ]
+-- | To avoid exporting the JSON instances for `Keys`.
+newtype Hidden = Hidden { hidden :: Keys }
+
+instance ToJSON Hidden where
+  toJSON (Hidden (Keys ks)) = object [ "public" .= pub ks, "private" .= prv ks ]
     where
       pub, prv :: P.SomeKeyPair -> Value
       pub = toJSON . P.PubBS . P.getPublic
       prv = toJSON . P.PrivBS . P.getPrivate
 
-instance FromJSON Keys where
+instance FromJSON Hidden where
   parseJSON (Object v) = do
     pub <- v .: "public"
     prv <- v .: "private"
-    either (const mempty) (pure . Keys) $ P.importKeyPair P.defaultScheme (Just pub) prv
+    either mempty (pure . Hidden . Keys) $ P.importKeyPair P.defaultScheme (Just pub) prv
   parseJSON invalid = prependFailure "parsing Keys failed: " (typeMismatch "Object" invalid)
 
 -- | Generate a Pact-compatible key pair: one public key, and one private key.
@@ -97,12 +125,12 @@ keys :: IO Keys
 keys = Keys <$> P.genKeyPair P.defaultScheme
 
 keysToFile :: FilePath -> Keys -> IO ()
-keysToFile fp = encodeFile fp
+keysToFile fp = encodeFile fp . Hidden
 
 -- | Will fail with `Nothing` if the `Keys` failed to parse from the expected
 -- format.
 keysFromFile :: FilePath -> IO (Maybe Keys)
-keysFromFile = decodeFileStrict'
+keysFromFile = fmap (fmap hidden) . decodeFileStrict'
 
 --------------------------------------------------------------------------------
 -- Pact Code
@@ -145,14 +173,17 @@ newtype Account = Account Text
 -- TODO Come up with a sane default `GasPrice`.
 -- TODO What is the difference between the two gas values?
 -- | To feed to the `transaction` function.
-meta :: Account -> P.ChainId -> IO P.PublicMeta
-meta (Account t) cid = do
+meta :: Account -> ChainId -> IO P.PublicMeta
+meta (Account t) c = P.PublicMeta c' t gl gp (P.TTLSeconds 3600) <$> txTime
+  where
+    c' = P.ChainId $ chainIdToText c
+    gl = P.GasLimit 100
+    gp = P.GasPrice 0.00000001
+
+txTime :: IO P.TxCreationTime
+txTime = do
   Time (TimeSpan (Micros m)) <- getCurrentTimeIntegral
-
-  let tct :: P.TxCreationTime
-      tct = fromIntegral $ m `div` 1000000
-
-  pure $ P.PublicMeta cid t (P.GasLimit 100) (P.GasPrice 0.00000001) (P.TTLSeconds 3600) tct
+  pure . fromIntegral $ m `div` 1000000
 
 -- | Confirmation that a `Transaction` has been accepted by the network. This
 -- can be used again as input to other calls to inspect the final results of
@@ -183,7 +214,7 @@ poll v cid (Receipt rk) = case clients v cid of
 
 -- | Do a blocking call to wait for the results corresponding to some `Receipt.`
 -- Might time out, in which case `Nothing` is returned. Should return quickly
--- for `Transactions` which have already completed.
+-- for `Transaction`s which have already completed.
 listen :: ChainwebVersion -> ChainId -> Receipt -> ClientM (Maybe TXResult)
 listen v cid (Receipt rk) = case clients v cid of
   _ :<|> _ :<|> f :<|> _ -> g <$> f (P.ListenerRequest rk)
@@ -228,37 +259,9 @@ transfer (Sender (Account s)) (Receiver (Account r)) d =
 --------------------------------------------------------------------------------
 -- Misc.
 
--- | Render the `PactError` as pretty-printed JSON.
+-- | Render the `P.PactError` as pretty-printed JSON.
 cuteError :: P.PactError -> Text
 cuteError = T.decodeUtf8With lenientDecode . toStrictBytes . encodePretty . toJSON
 
 cute :: P.Doc -> Text
 cute = renderStrict . layoutPretty defaultLayoutOptions
-
-work :: IO ()
-work = keysFromFile "colin.json" >>= \case
-  Nothing -> traceIO "Couldn't read key file"
-  -- Just ks -> case transfer (Sender acc) (Receiver $ Account "doug") 1 of
-  Just ks -> case balance acc of
-    Nothing -> traceIO "Couldn't parse Pact code"
-    Just c  -> do
-      env <- ClientEnv <$> newManager tlsManagerSettings <*> pure url <*> pure Nothing
-      m   <- meta acc "0"
-      tx  <- transaction c ks m
-      runClientM (go tx) env >>= traceShowIO
-  where
-    v :: ChainwebVersion
-    v = Testnet02
-
-    cid :: ChainId
-    cid = unsafeChainId 0
-
-    url :: BaseUrl
-    url = BaseUrl Https "us1.testnet.chainweb.com" 443 ""
-
-    acc :: Account
-    acc = Account "colin"
-
-    -- go :: Transaction -> ClientM P.ListenResponse
-    -- go = send v cid >=> listen v cid
-    go = local v cid
