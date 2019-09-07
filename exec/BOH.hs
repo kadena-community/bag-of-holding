@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds          #-}
 {-# LANGUAGE DeriveGeneric      #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase         #-}
@@ -17,10 +18,11 @@ import           Chainweb.Utils (textOption, toText)
 import           Chainweb.Version
 import           Control.Error.Util ((!?))
 import           Control.Monad.Trans.Except (runExceptT)
+import           Data.Generics.Product.Fields (field)
 import           Data.Generics.Product.Typed (typed)
 import qualified Graphics.Vty as Vty
 import           Holding
-import           Lens.Micro (_Right)
+import           Lens.Micro ((%~), (.~), _Right)
 import           Lens.Micro.Extras (preview)
 import           Network.HTTP.Client (newManager)
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
@@ -28,6 +30,7 @@ import           Options.Applicative hiding (str)
 import           RIO hiding (local, on)
 import qualified RIO.Seq as Seq
 import qualified RIO.Text as T
+import           RIO.Time (getCurrentTime)
 import           Servant.Client
 
 ---
@@ -141,7 +144,9 @@ Cursor:
 
 -}
 
-type Listo n e = L.GenericList n Seq e
+data Wallet = Wallet
+  { txs :: !(L.GenericList () Seq Text) }
+  deriving stock (Generic)
 
 border :: Widget a -> Widget a
 border = withBorderStyle BS.unicode . B.borderWithLabel (str " The Bag of Holding ")
@@ -149,10 +154,10 @@ border = withBorderStyle BS.unicode . B.borderWithLabel (str " The Bag of Holdin
 main :: IO ()
 main = void $ defaultMain app initial
   where
-    initial :: Listo () Char
-    initial = L.list () (Seq.fromList ['a', 'b', 'c']) 1
+    initial :: Wallet
+    initial = Wallet $ L.list () mempty 1
 
-    app :: App (Listo () Char) e ()
+    app :: App Wallet e ()
     app = App { appDraw = draw
               , appChooseCursor = showFirstCursor
               , appHandleEvent = event
@@ -165,22 +170,30 @@ main = void $ defaultMain app initial
               (L.listSelectedAttr, Vty.blue `on` Vty.white)
             ]
 
-draw :: Listo () Char -> [Widget ()]
-draw l = [ui]
+draw :: Wallet -> [Widget ()]
+draw (Wallet l) = [ui]
   where
     ui :: Widget ()
     ui = border $ left <+> right
 
     left :: Widget ()
-    left = B.borderWithLabel (str " Transaction History ")
-      $ L.renderList (\_ c -> C.hCenter . str $ show c) True l
+    left = B.borderWithLabel (str " Transaction History ") txs
+
+    txs :: Widget ()
+    txs | Seq.null (l ^. L.listElementsL) = C.center $ str "No transactions yet!"
+        | otherwise = L.renderList (\_ c -> C.hCenter . str $ show c) True l
 
     right :: Widget ()
     right = B.borderWithLabel (str " Transaction Result ")
       $ C.center . str . show $ L.listSelected l
 
-event :: Listo () Char -> BrickEvent () e -> EventM () (Next (Listo () Char))
-event l (VtyEvent e) = case e of
-  Vty.EvKey (Vty.KChar 'q') [] -> halt l
-  ev -> L.handleListEventVi L.handleListEvent ev l >>= continue
-event l _ = continue l
+event :: Wallet -> BrickEvent () e -> EventM () (Next Wallet)
+event w (VtyEvent e) = case e of
+  Vty.EvKey (Vty.KChar 'q') [] -> halt w
+  Vty.EvKey Vty.KBS [] -> do
+    t <- tshow <$> getCurrentTime
+    continue (w & field @"txs" %~ L.listInsert 0 t)
+  ev -> do
+    l' <- L.handleListEventVi L.handleListEvent ev (w ^. field @"txs")
+    continue (w & field @"txs" .~ l')
+event w _ = continue w
