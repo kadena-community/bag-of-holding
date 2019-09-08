@@ -10,7 +10,6 @@ module Main ( main ) where
 import           Brick
 import qualified Brick.AttrMap as A
 import qualified Brick.Widgets.Border as B
-import qualified Brick.Widgets.Border.Style as BS
 import qualified Brick.Widgets.Center as C
 import qualified Brick.Widgets.List as L
 import           Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
@@ -19,11 +18,9 @@ import           Chainweb.Version
 import           Control.Error.Util ((!?))
 import           Control.Monad.Trans.Except (runExceptT)
 import           Data.Generics.Product.Fields (field)
-import           Data.Generics.Product.Typed (typed)
-import qualified Graphics.Vty as Vty
+import qualified Graphics.Vty as V
 import           Holding
 import           Lens.Micro ((%~), (.~), _Right)
-import           Lens.Micro.Extras (preview)
 import           Network.HTTP.Client (newManager)
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Options.Applicative hiding (footer, header, str)
@@ -60,73 +57,26 @@ pUrl = hostAddressToBaseUrl Https <$> host
     host = textOption (long "node" <> metavar "HOSTNAME:PORT" <> help "Node to send TXs")
 
 -- | The immutable runtime environment.
-data Wallet = Wallet
+data Env = Env
   { versionOf :: !ChainwebVersion
   , clenvOf   :: !ClientEnv
   , keysOf    :: !Keys
-  , accountOf :: !Account
-  , txsOf     :: !(L.GenericList () Seq Text) }
-  -- , loggerOf  :: !LogFunc }
+  , accountOf :: !Account }
   deriving stock (Generic)
-
--- instance HasLogFunc Env where
---   logFuncL = typed @LogFunc
 
 -- | From some CLI `Args`, form the immutable runtime environment.
 -- env :: Args -> IO (Either Text (LogFunc -> Env))
-env :: Args -> IO (Either Text Wallet)
+env :: Args -> IO (Either Text Env)
 env (Args v fp acc url) = runExceptT $ do
   ks <- keysFromFile fp !? ("Could not decode key file: " <> T.pack fp)
   mn <- lift $ newManager tlsManagerSettings
-  pure $ Wallet v (ClientEnv mn url Nothing) ks acc (L.list () mempty 1)
+  pure $ Env v (ClientEnv mn url Nothing) ks acc
 
--- TODO Jail off the Env/Logger usage here. This will clean up `main`.
--- withEnv :: Args -> (Env -> IO a) -> IO a
--- withEnv (Args v fp acc url) = runExceptT $ do
---   ks <- keysFromFile fp !? ("Could not decode key file: " <> T.pack fp)
---   mn <- lift $ newManager tlsManagerSettings
---   pure $ Env v (ClientEnv mn url Nothing) ks acc
-
--- The rightmost `True` sets "maximum verbosity", and then we opt to turn off
--- individual things. The opposite process doesn't seem to work.
--- logging :: IO LogOptions
--- logging = setLogUseLoc False <$> logOptionsHandle stderr True
-
--- main :: IO ()
--- main = execParser opts >>= env >>= \case
---   Left _  -> pure ()  -- TODO Say anything.
---   Right e -> logging >>= \los -> withLogFunc los (\lf -> runRIO (e lf) work)
---   where
---     opts :: ParserInfo Args
---     opts = info (pArgs <**> helper)
---         (fullDesc <> progDesc "The Bag of Holding: A Chainweb Wallet")
-
--- TODO How to pretty-print a `PactValue`?
--- work :: RIO Env ()
--- work = do
---   logInfo "Opening Wallet."
---   fmap balance (asks accountOf) >>= \case
---     Nothing -> logWarn "Failed to parse Pact code"
---     Just c -> call cid c >>= traceShowIO . (preview (_Right . pactValue))
---   logInfo "Wallet closed."
---   where
---     cid :: ChainId
---     cid = unsafeChainId 0
-
--- | Make a `local` call to the configured Chainweb node.
--- call :: ChainId -> PactCode -> RIO Env (Either ClientError TXResult)
--- call cid c = do
---   e <- ask
---   liftIO $ do
---     m <- meta (accountOf e) cid
---     tx <- transaction c (keysOf e) m
---     runClientM (local (versionOf e) cid tx) (clenvOf e)
-
-call' :: Wallet -> ChainId -> PactCode -> IO (Either ClientError TXResult)
-call' w cid c = do
-  m <- meta (accountOf w) cid
-  tx <- transaction c (keysOf w) m
-  runClientM (local (versionOf w) cid tx) (clenvOf w)
+call :: Env -> ChainId -> PactCode -> IO (Either ClientError TXResult)
+call e cid c = do
+  m <- meta (accountOf e) cid
+  tx <- transaction c (keysOf e) m
+  runClientM (local (versionOf e) cid tx) (clenvOf e)
 
 --------------------------------------------------------------------------------
 -- Brick
@@ -152,6 +102,10 @@ Cursor:
 
 -}
 
+data Wallet = Wallet
+  { txsOf :: L.GenericList () Seq Text }
+  deriving (Generic)
+
 header :: Widget a
 header = vLimit 1 . C.center $ txt " The Bag of Holding "
 
@@ -163,24 +117,26 @@ main :: IO ()
 main = do
   execParser opts >>= env >>= \case
     Left _ -> pure ()
-    Right w -> do
-      void $ defaultMain app w
+    Right e -> void $ defaultMain (app e) initial
   where
+    initial :: Wallet
+    initial = Wallet (L.list () mempty 1)
+
     opts :: ParserInfo Args
     opts = info (pArgs <**> helper)
         (fullDesc <> progDesc "The Bag of Holding: A Chainweb Wallet")
 
-    app :: App Wallet e ()
-    app = App { appDraw = draw
-              , appChooseCursor = showFirstCursor
-              , appHandleEvent = event
-              , appStartEvent = pure
-              , appAttrMap = const $ A.attrMap Vty.defAttr attrs
-              }
+    app :: Env -> App Wallet e ()
+    app e = App { appDraw = draw
+                , appChooseCursor = showFirstCursor
+                , appHandleEvent = event e
+                , appStartEvent = pure
+                , appAttrMap = const $ A.attrMap V.defAttr attrs
+                }
 
-    attrs :: [(AttrName, Vty.Attr)]
-    attrs = [ -- (L.listAttr,         Vty.white `on` Vty.blue)
-              (L.listSelectedAttr, Vty.blue `on` Vty.white)
+    attrs :: [(AttrName, V.Attr)]
+    attrs = [ -- (L.listAttr,         V.white `on` V.blue)
+              (L.listSelectedAttr, V.blue `on` V.white)
             ]
 
 draw :: Wallet -> [Widget ()]
@@ -204,20 +160,20 @@ draw w = [ui]
     right = B.borderWithLabel (str " Transaction Result ")
       $ C.center . str . show $ L.listSelected l
 
-event :: Wallet -> BrickEvent () e -> EventM () (Next Wallet)
-event w (VtyEvent e) = case e of
+event :: Env -> Wallet -> BrickEvent () e -> EventM () (Next Wallet)
+event e w (VtyEvent ve) = case ve of
   -- Quit --
-  Vty.EvKey (Vty.KChar 'q') [] -> halt w
+  V.EvKey (V.KChar 'q') [] -> halt w
 
   -- Balance Check --
-  Vty.EvKey (Vty.KChar 'b') [] -> do
-    case balance (accountOf w) of
+  V.EvKey (V.KChar 'b') [] -> do
+    case balance (accountOf e) of
       Nothing -> continue w
       Just c  -> do
-        t <- fmap (^. _Right . pactValue . to tshow) . liftIO $ call' w (unsafeChainId 0) c
+        t <- fmap (^. _Right . pactValue . to tshow) . liftIO $ call e (unsafeChainId 0) c
         continue (w & field @"txsOf" %~ L.listInsert 0 t)
 
-  Vty.EvKey Vty.KBS [] -> do
+  V.EvKey V.KBS [] -> do
     t <- tshow <$> getCurrentTime
     continue (w & field @"txsOf" %~ L.listInsert 0 t)
 
@@ -225,4 +181,4 @@ event w (VtyEvent e) = case e of
   ev -> do
     l' <- L.handleListEventVi L.handleListEvent ev (txsOf w)
     continue (w & field @"txsOf" .~ l')
-event w _ = continue w
+event _ w _ = continue w
