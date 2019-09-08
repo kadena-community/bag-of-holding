@@ -40,7 +40,7 @@ module Holding
   , balance
   , transfer
     -- * Misc.
-  , cuteError
+  , tencode
   , cute
   ) where
 
@@ -51,7 +51,7 @@ import           Control.Error.Util (hush)
 import           Data.Aeson
 import           Data.Aeson.Encode.Pretty (encodePretty)
 import           Data.Aeson.Types (prependFailure, typeMismatch)
-import           Data.Generics.Wrapped
+import           Data.Generics.Wrapped (_Unwrapped)
 import           Data.Singletons
 import           Data.Text.Prettyprint.Doc (defaultLayoutOptions, layoutPretty)
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
@@ -198,7 +198,7 @@ txTime = do
 newtype Receipt = Receipt P.RequestKey
 
 -- | The final result/outcome of some sent `Transaction`.
-newtype TXResult = TXResult (P.CommandResult P.Hash)
+newtype TXResult = TXResult { txr :: (P.CommandResult P.Hash) }
   deriving stock (Generic)
 
 -- | Attempt to pull a real `P.PactValue` from some returned `TXResult`.
@@ -271,9 +271,9 @@ transfer (Sender (Account s)) (Receiver (Account r)) d =
 --------------------------------------------------------------------------------
 -- Misc.
 
--- | Render the `P.PactError` as pretty-printed JSON.
-cuteError :: P.PactError -> Text
-cuteError = T.decodeUtf8With lenientDecode . toStrictBytes . encodePretty . toJSON
-
 cute :: P.Doc -> Text
 cute = renderStrict . layoutPretty defaultLayoutOptions
+
+-- | Pretty-render a JSON value as strict `Text`.
+tencode :: ToJSON a => a -> Text
+tencode = T.decodeUtf8With lenientDecode . toStrictBytes . encodePretty . toJSON

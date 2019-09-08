@@ -18,16 +18,17 @@ import           Chainweb.Version
 import           Control.Error.Util ((!?))
 import           Control.Monad.Trans.Except (runExceptT)
 import           Data.Generics.Product.Fields (field)
+import           Data.Generics.Wrapped (_Unwrapped)
 import qualified Graphics.Vty as V
 import           Holding
-import           Lens.Micro ((%~), (.~), _Right)
+import           Lens.Micro ((%~), (.~), (^?), _2, _Just, _Right)
 import           Network.HTTP.Client (newManager)
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Options.Applicative hiding (footer, header, str)
+import qualified Pact.Types.Command as P
 import           RIO hiding (local, on)
 import qualified RIO.Seq as Seq
 import qualified RIO.Text as T
-import           RIO.Time (getCurrentTime)
 import           Servant.Client
 
 ---
@@ -103,8 +104,12 @@ Cursor:
 -}
 
 data Wallet = Wallet
-  { txsOf :: L.GenericList () Seq Text }
+  { txsOf  :: L.GenericList () Seq (Either ClientError From)
+  , currOf :: Maybe TXResult
+  }
   deriving (Generic)
+
+data From = R Receipt | T TXResult
 
 header :: Widget a
 header = vLimit 1 . C.center $ txt " The Bag of Holding "
@@ -120,7 +125,7 @@ main = do
     Right e -> void $ defaultMain (app e) initial
   where
     initial :: Wallet
-    initial = Wallet (L.list () mempty 1)
+    initial = Wallet (L.list () mempty 1) Nothing
 
     opts :: ParserInfo Args
     opts = info (pArgs <**> helper)
@@ -142,23 +147,31 @@ main = do
 draw :: Wallet -> [Widget ()]
 draw w = [ui]
   where
-    l :: L.GenericList () Seq Text
-    -- l = w ^. field @"txs"
+    l :: L.GenericList () Seq (Either ClientError From)
     l = txsOf w
 
     ui :: Widget ()
     ui = header <=> (left <+> right) <=> footer
 
     left :: Widget ()
-    left = B.borderWithLabel (str " Transaction History ") txs
+    left = B.borderWithLabel (txt " Transaction History ") txs
 
     txs :: Widget ()
-    txs | Seq.null (l ^. L.listElementsL) = C.center $ str "No transactions yet!"
-        | otherwise = L.renderList (\_ c -> C.hCenter . str $ show c) True l
+    txs | Seq.null (l ^. L.listElementsL) = C.center $ txt "No transactions yet!"
+        | otherwise = L.renderList f True l
+
+    f :: Bool -> Either ClientError From -> Widget ()
+    f _ (Left _)      = hLimit 1 (txt "X") <+> C.hCenter (txt "FAILED")
+    f _ (Right (R r)) = hLimit 1 (txt "/") <+> C.hCenter (txt "Receipt")
+    f _ (Right (T t)) = hLimit 1 (txt icon) <+> C.hCenter (txt rk)
+      where
+        icon = maybe "X" (const "O") (t ^? pactValue)
+        rk = t ^. _Unwrapped . P.crReqKey . to P.requestKeyToB16Text
 
     right :: Widget ()
-    right = B.borderWithLabel (str " Transaction Result ")
-      $ C.center . str . show $ L.listSelected l
+    right = B.borderWithLabel (txt " Transaction Result ") . C.center $ txt foo
+      where
+        foo = maybe "Select a Transaction" (tencode . txr) $ currOf w
 
 event :: Env -> Wallet -> BrickEvent () e -> EventM () (Next Wallet)
 event e w (VtyEvent ve) = case ve of
@@ -166,16 +179,17 @@ event e w (VtyEvent ve) = case ve of
   V.EvKey (V.KChar 'q') [] -> halt w
 
   -- Balance Check --
-  V.EvKey (V.KChar 'b') [] -> do
-    case balance (accountOf e) of
-      Nothing -> continue w
-      Just c  -> do
-        t <- fmap (^. _Right . pactValue . to tshow) . liftIO $ call e (unsafeChainId 0) c
-        continue (w & field @"txsOf" %~ L.listInsert 0 t)
+  V.EvKey (V.KChar 'b') [] -> case balance (accountOf e) of
+    Nothing -> continue w
+    Just c  -> do
+      t <- liftIO $ call e (unsafeChainId 0) c
+      continue (w & field @"txsOf" %~ L.listInsert 0 (T <$> t))
 
-  V.EvKey V.KBS [] -> do
-    t <- tshow <$> getCurrentTime
-    continue (w & field @"txsOf" %~ L.listInsert 0 t)
+  -- History Selection --
+  V.EvKey V.KEnter [] -> case L.listSelectedElement (txsOf w) ^? _Just . _2 . _Right of
+    Nothing    -> continue w
+    Just (T t) -> continue (w & field @"currOf" .~ Just t)
+    Just (R r) -> undefined  -- TODO Do a `listen/` call.
 
   -- Keyboard Navigation --
   ev -> do
