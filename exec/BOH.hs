@@ -26,7 +26,7 @@ import           Lens.Micro ((%~), (.~), _Right)
 import           Lens.Micro.Extras (preview)
 import           Network.HTTP.Client (newManager)
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
-import           Options.Applicative hiding (str)
+import           Options.Applicative hiding (footer, header, str)
 import           RIO hiding (local, on)
 import qualified RIO.Seq as Seq
 import qualified RIO.Text as T
@@ -152,8 +152,12 @@ Cursor:
 
 -}
 
-border :: Widget a -> Widget a
-border = withBorderStyle BS.unicode . B.borderWithLabel (str " The Bag of Holding ")
+header :: Widget a
+header = vLimit 1 . C.center $ txt " The Bag of Holding "
+
+footer :: Widget a
+footer = vLimit 1 . C.center $
+  txt "Check [B]alance - [T]ransaction - Pact [R]EPL - [H]elp - [Q]uit"
 
 main :: IO ()
 main = do
@@ -187,7 +191,7 @@ draw w = [ui]
     l = txsOf w
 
     ui :: Widget ()
-    ui = border $ left <+> right
+    ui = header <=> (left <+> right) <=> footer
 
     left :: Widget ()
     left = B.borderWithLabel (str " Transaction History ") txs

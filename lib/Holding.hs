@@ -88,6 +88,7 @@ DO:
 - Show a history of recent TXs.
 - LISTEN ON PORT 9467 FOR SIGNING TXS IN DAPPS! HAVE MANUAL CONFIRMATION WITHIN WALLET!
 - Bare-bones REPL mode that sends gasless TXs to `local/`.
+- Show JSON'd config values in Help window.
 
 DON'T:
 - Be a module/transaction explorer.
