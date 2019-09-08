@@ -15,13 +15,13 @@ import qualified Brick.Widgets.List as L
 import           Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import           Chainweb.Utils (textOption, toText)
 import           Chainweb.Version
-import           Control.Error.Util ((!?))
+import           Control.Error.Util (hush, (!?))
 import           Control.Monad.Trans.Except (runExceptT)
 import           Data.Generics.Product.Fields (field)
 import           Data.Generics.Wrapped (_Unwrapped)
 import qualified Graphics.Vty as V
 import           Holding
-import           Lens.Micro ((%~), (.~), (^?), _2, _Just, _Right)
+import           Lens.Micro
 import           Network.HTTP.Client (newManager)
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Options.Applicative hiding (footer, header, str)
@@ -32,6 +32,9 @@ import qualified RIO.Text as T
 import           Servant.Client
 
 ---
+
+--------------------------------------------------------------------------------
+-- CLI Handling
 
 -- | CLI arguments.
 data Args = Args ChainwebVersion FilePath Account BaseUrl
@@ -59,10 +62,10 @@ pUrl = hostAddressToBaseUrl Https <$> host
 
 -- | The immutable runtime environment.
 data Env = Env
-  { versionOf :: !ChainwebVersion
-  , clenvOf   :: !ClientEnv
-  , keysOf    :: !Keys
-  , accountOf :: !Account }
+  { verOf   :: !ChainwebVersion
+  , clenvOf :: !ClientEnv
+  , keysOf  :: !Keys
+  , accOf   :: !Account }
   deriving stock (Generic)
 
 -- | From some CLI `Args`, form the immutable runtime environment.
@@ -75,9 +78,9 @@ env (Args v fp acc url) = runExceptT $ do
 
 call :: Env -> ChainId -> PactCode -> IO (Either ClientError TXResult)
 call e cid c = do
-  m <- meta (accountOf e) cid
+  m <- meta (accOf e) cid
   tx <- transaction c (keysOf e) m
-  runClientM (local (versionOf e) cid tx) (clenvOf e)
+  runClientM (local (verOf e) cid tx) (clenvOf e)
 
 --------------------------------------------------------------------------------
 -- Brick
@@ -103,10 +106,11 @@ Cursor:
 
 -}
 
+type Listo = L.GenericList () Seq (Either ClientError From)
+
 data Wallet = Wallet
-  { txsOf  :: L.GenericList () Seq (Either ClientError From)
-  , currOf :: Maybe TXResult
-  }
+  { txsOf  :: Listo
+  , currOf :: Maybe TXResult }
   deriving (Generic)
 
 data From = R Receipt | T TXResult
@@ -121,7 +125,7 @@ footer = vLimit 1 . C.center $
 main :: IO ()
 main = do
   execParser opts >>= env >>= \case
-    Left _ -> pure ()
+    Left _ -> pure () -- TODO Say something.
     Right e -> void $ defaultMain (app e) initial
   where
     initial :: Wallet
@@ -147,26 +151,29 @@ main = do
 draw :: Wallet -> [Widget ()]
 draw w = [ui]
   where
-    l :: L.GenericList () Seq (Either ClientError From)
+    l :: Listo
     l = txsOf w
 
     ui :: Widget ()
     ui = header <=> (left <+> right) <=> footer
 
+    -- TODO Consider `round` border style.
     left :: Widget ()
     left = B.borderWithLabel (txt " Transaction History ") txs
 
     txs :: Widget ()
     txs | Seq.null (l ^. L.listElementsL) = C.center $ txt "No transactions yet!"
-        | otherwise = L.renderList f True l
+        | otherwise = L.renderList (const f) True l
 
-    f :: Bool -> Either ClientError From -> Widget ()
-    f _ (Left _)      = hLimit 1 (txt "X") <+> C.hCenter (txt "FAILED")
-    f _ (Right (R r)) = hLimit 1 (txt "/") <+> C.hCenter (txt "Receipt")
-    f _ (Right (T t)) = hLimit 1 (txt icon) <+> C.hCenter (txt rk)
+    f :: Either ClientError From -> Widget ()
+    f (Left _)      = hLimit 1 (txt "☹") <+> C.hCenter (txt "HTTP Failure")
+    f (Right (R r)) = hLimit 1 (txt "⌛") <+> C.hCenter (txt rkr)
       where
-        icon = maybe "X" (const "O") (t ^? pactValue)
-        rk = t ^. _Unwrapped . P.crReqKey . to P.requestKeyToB16Text
+        rkr = r ^. _Unwrapped . to P.requestKeyToB16Text
+    f (Right (T t)) = hLimit 1 (txt sym) <+> C.hCenter (txt rkt)
+      where
+        sym = maybe "☹" (const "✓") (t ^? pactValue)
+        rkt = t ^. _Unwrapped . P.crReqKey . to P.requestKeyToB16Text
 
     right :: Widget ()
     right = B.borderWithLabel (txt " Transaction Result ") . C.center $ txt foo
@@ -179,20 +186,32 @@ event e w (VtyEvent ve) = case ve of
   V.EvKey (V.KChar 'q') [] -> halt w
 
   -- Balance Check --
-  V.EvKey (V.KChar 'b') [] -> case balance (accountOf e) of
+  V.EvKey (V.KChar 'b') [] -> case balance (accOf e) of
     Nothing -> continue w
     Just c  -> do
-      t <- liftIO $ call e (unsafeChainId 0) c
+      t <- liftIO $ call e cid c
       continue (w & field @"txsOf" %~ L.listInsert 0 (T <$> t))
 
+  -- TODO This can probably get prettier.
   -- History Selection --
-  V.EvKey V.KEnter [] -> case L.listSelectedElement (txsOf w) ^? _Just . _2 . _Right of
-    Nothing    -> continue w
-    Just (T t) -> continue (w & field @"currOf" .~ Just t)
-    Just (R r) -> undefined  -- TODO Do a `listen/` call.
+  V.EvKey V.KEnter [] -> maybe (pure w) (liftIO . f) (w ^? from) >>= continue
+      where
+        f :: From -> IO Wallet
+        f (T t) = pure (w & field @"currOf" ?~ t)
+        f (R r) = join . hush <$> runClientM (listen (verOf e) cid r) (clenvOf e) >>= \case
+          Nothing -> pure w
+          Just t  -> pure $ w & field @"currOf" ?~ t
+                              & field @"txsOf"  %~ (L.listModify (const . Right $ T t))
 
   -- Keyboard Navigation --
   ev -> do
     l' <- L.handleListEventVi L.handleListEvent ev (txsOf w)
     continue (w & field @"txsOf" .~ l')
+  where
+    cid :: ChainId
+    cid = unsafeChainId 0  -- TODO Needs to come from elsewhere!
 event _ w _ = continue w
+
+-- TODO Emily halp
+-- from :: Traversal' Listo From
+from = field @"txsOf" . to L.listSelectedElement . _Just . _2 . _Right

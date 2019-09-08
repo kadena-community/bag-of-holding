@@ -195,7 +195,7 @@ txTime = do
 -- | Confirmation that a `Transaction` has been accepted by the network. This
 -- can be used again as input to other calls to inspect the final results of
 -- that `Transaction`.
-newtype Receipt = Receipt P.RequestKey
+newtype Receipt = Receipt P.RequestKey deriving stock (Generic)
 
 -- | The final result/outcome of some sent `Transaction`.
 newtype TXResult = TXResult { txr :: (P.CommandResult P.Hash) }
