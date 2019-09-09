@@ -9,8 +9,11 @@ module Main ( main ) where
 
 import           Brick
 import qualified Brick.AttrMap as A
+import           Brick.Forms
 import qualified Brick.Widgets.Border as B
 import qualified Brick.Widgets.Center as C
+-- import qualified Brick.Widgets.Dialog as D
+import qualified Brick.Widgets.Edit as E
 import qualified Brick.Widgets.List as L
 import           Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import           Chainweb.Utils (textOption, toText)
@@ -18,6 +21,7 @@ import           Chainweb.Version
 import           Control.Error.Util (hush, (!?))
 import           Control.Monad.Trans.Except (runExceptT)
 import           Data.Generics.Product.Fields (field)
+import           Data.Generics.Product.Typed (typed)
 import           Data.Generics.Wrapped (_Unwrapped)
 import qualified Graphics.Vty as V
 import           Holding
@@ -106,21 +110,43 @@ Cursor:
 
 -}
 
-type Listo = L.GenericList () Seq (Either ClientError From)
+type Listo = L.GenericList Name Seq (Either ClientError From)
 
 data Wallet = Wallet
   { txsOf  :: Listo
-  , currOf :: Maybe TXResult }
+  , currOf :: Maybe TXResult
+  , logOf  :: Text
+  , dialOf :: Bool }
   deriving (Generic)
 
+-- | Container for all one-off forms I intend to use.
+data Forms e = Forms { replF :: Form REPL e Name }
+
 data From = R Receipt | T TXResult
+
+data Choice = No | Yes
+
+-- data REPL = REPL !ChainId !PactCode
+data REPL = REPL Text deriving stock (Generic)
+
+-- | Resource names.
+data Name = TXList | MsgField deriving stock (Eq, Ord, Show)
 
 header :: Widget a
 header = vLimit 1 . C.center $ txt " The Bag of Holding "
 
-footer :: Widget a
-footer = vLimit 1 . C.center $
-  txt "Check [B]alance - [T]ransaction - Pact [R]EPL - [H]elp - [Q]uit"
+footer :: Text -> Widget a
+footer t = vLimit 1 $ txt (T.take 10 t) <+> C.hCenter legend
+  where
+    legend = txt "Check [B]alance - [T]ransaction - Pact [R]EPL - [H]elp - [Q]uit"
+
+replForm :: REPL -> Form REPL e Name
+replForm = newForm
+  [ label "Pact Code" @@= editTextField (typed @Text) MsgField Nothing
+  ]
+  where
+    label :: Text -> Widget Name -> Widget Name
+    label t w = padTopBottom 1 $ (vLimit 1 $ hLimit 15 $ txt t <+> fill ' ') <+> w
 
 main :: IO ()
 main = do
@@ -129,14 +155,14 @@ main = do
     Right e -> void $ defaultMain (app e) initial
   where
     initial :: Wallet
-    initial = Wallet (L.list () mempty 1) Nothing
+    initial = Wallet (L.list TXList mempty 1) Nothing "" False
 
     opts :: ParserInfo Args
     opts = info (pArgs <**> helper)
         (fullDesc <> progDesc "The Bag of Holding: A Chainweb Wallet")
 
-    app :: Env -> App Wallet e ()
-    app e = App { appDraw = draw
+    app :: Env -> App Wallet e Name
+    app e = App { appDraw = draw (Forms (replForm $ REPL ""))
                 , appChooseCursor = showFirstCursor
                 , appHandleEvent = event e
                 , appStartEvent = pure
@@ -145,27 +171,44 @@ main = do
 
     attrs :: [(AttrName, V.Attr)]
     attrs = [ -- (L.listAttr,         V.white `on` V.blue)
-              (L.listSelectedAttr, V.blue `on` V.white)
+              (L.listSelectedAttr,   V.blue  `on` V.white)
+            , (E.editAttr,           V.white `on` V.black)
+            , (E.editFocusedAttr,    V.black `on` V.yellow)
+            , (invalidFormInputAttr, V.white `on` V.red)
+            , (focusedFormInputAttr, V.black `on` V.yellow)
             ]
 
-draw :: Wallet -> [Widget ()]
-draw w = [ui]
+draw :: Forms e -> Wallet -> [Widget Name]
+draw fs w = repl <> [ui]
   where
     l :: Listo
     l = txsOf w
 
-    ui :: Widget ()
-    ui = header <=> (left <+> right) <=> footer
+    -- repl | dialOf w  = [D.renderDialog dia $ C.center $ txt "Super REPL here"]
+    repl | not (dialOf w) = []
+         | otherwise =
+           [ C.centerLayer
+             . vLimit 6
+             . hLimitPercent 50
+             . B.borderWithLabel (txt "Pact REPL")
+             $ renderForm (replF fs) <=> C.hCenter (txt "[Enter]")
+           ]
+
+    -- dia :: D.Dialog Choice
+    -- dia = D.dialog (Just "Pact REPL") (Just (0, [("No", No), ("Yes", Yes)])) 40
+
+    ui :: Widget Name
+    ui = header <=> (left <+> right) <=> footer (logOf w)
 
     -- TODO Consider `round` border style.
-    left :: Widget ()
+    left :: Widget Name
     left = B.borderWithLabel (txt " Transaction History ") txs
 
-    txs :: Widget ()
+    txs :: Widget Name
     txs | Seq.null (l ^. L.listElementsL) = C.center $ txt "No transactions yet!"
         | otherwise = L.renderList (const f) True l
 
-    f :: Either ClientError From -> Widget ()
+    f :: Either ClientError From -> Widget Name
     f (Left _)      = hLimit 1 (txt "☹") <+> C.hCenter (txt "HTTP Failure")
     f (Right (R r)) = hLimit 1 (txt "⌛") <+> C.hCenter (txt rkr)
       where
@@ -175,12 +218,12 @@ draw w = [ui]
         sym = maybe "☹" (const "✓") (t ^? pactValue)
         rkt = t ^. _Unwrapped . P.crReqKey . to P.requestKeyToB16Text
 
-    right :: Widget ()
+    right :: Widget Name
     right = B.borderWithLabel (txt " Transaction Result ") . C.center $ txt foo
       where
         foo = maybe "Select a Transaction" (tencode . txr) $ currOf w
 
-event :: Env -> Wallet -> BrickEvent () e -> EventM () (Next Wallet)
+event :: Env -> Wallet -> BrickEvent Name e -> EventM Name (Next Wallet)
 event e w (VtyEvent ve) = case ve of
   -- Quit --
   V.EvKey (V.KChar 'q') [] -> halt w
@@ -191,6 +234,9 @@ event e w (VtyEvent ve) = case ve of
     Just c  -> do
       t <- liftIO $ call e cid c
       continue (w & field @"txsOf" %~ L.listInsert 0 (T <$> t))
+
+  -- REPL Dialog --
+  V.EvKey (V.KChar 'r') [] -> continue (w & field @"dialOf" %~ not)
 
   -- TODO This can probably get prettier.
   -- History Selection --
