@@ -14,7 +14,6 @@ import           Brick.Focus
 import           Brick.Forms
 import qualified Brick.Widgets.Border as B
 import qualified Brick.Widgets.Center as C
--- import qualified Brick.Widgets.Dialog as D
 import qualified Brick.Widgets.Edit as E
 import qualified Brick.Widgets.List as L
 import           Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
@@ -23,7 +22,7 @@ import           Chainweb.Version
 import           Control.Error.Util (hush, (!?))
 import           Control.Monad.Trans.Except (runExceptT)
 import           Data.Generics.Product.Fields (field)
-import           Data.Generics.Product.Typed (typed)
+-- import           Data.Generics.Product.Typed (typed)
 import           Data.Generics.Wrapped (_Unwrapped)
 import qualified Graphics.Vty as V
 import           Holding
@@ -33,6 +32,7 @@ import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Options.Applicative hiding (footer, header, str)
 import qualified Pact.Types.Command as P
 import           RIO hiding (local, on)
+import           RIO.Partial (fromJust)
 import qualified RIO.Seq as Seq
 import qualified RIO.Text as T
 import           Servant.Client
@@ -91,27 +91,6 @@ call e cid c = do
 --------------------------------------------------------------------------------
 -- Brick
 
-{- BRICK NOTES
-
-Specific widget sizes:
-
-  hLimit 20 $ vLimit 5 $ <SOME-WIDGET>
-
-Borders:
-
-  B.borderWithLabel
-  B.vBorder
-  B.hBorder
-  B.hBorderWithLabel
-
-Cursor:
-
-  neverShowCursor
-  showFirstCursor
-  showCursorNamed
-
--}
-
 type Listo = L.GenericList Name Seq (Either ClientError From)
 
 data Wallet = Wallet
@@ -124,11 +103,10 @@ data Wallet = Wallet
 
 data From = R Receipt | T TXResult
 
--- data REPL = REPL !ChainId !PactCode
-data REPL = REPL Text deriving stock (Generic)
+data REPL = REPL { rcid :: ChainId, rpc :: PactCode } deriving stock (Generic)
 
 -- | Resource names.
-data Name = TXList | MsgField deriving stock (Eq, Ord, Show, Enum, Bounded)
+data Name = TXList | ReplCode deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 header :: Widget a
 header = vLimit 1 . C.center $ txt " The Bag of Holding "
@@ -140,7 +118,9 @@ footer t = vLimit 1 $ txt (T.take 10 t) <+> C.hCenter legend
 
 replForm :: REPL -> Form REPL e Name
 replForm = newForm
-  [ label "Pact Code" @@= editTextField (typed @Text) MsgField Nothing
+  [ label "Pact Code"
+    @@= editField (field @"rpc") ReplCode Nothing
+    (^. _Unwrapped) (code . T.intercalate "\n") (txt . T.intercalate "\n") id
   ]
   where
     label :: Text -> Widget Name -> Widget Name
@@ -158,7 +138,7 @@ main = do
       Nothing
       ""
       (focusRing [minBound ..])
-      (replForm $ REPL "")
+      (replForm . REPL (unsafeChainId 0) . fromJust $ code "(+ 1 1)")
 
     opts :: ParserInfo Args
     opts = info (pArgs <**> helper)
@@ -180,21 +160,23 @@ main = do
             , (focusedFormInputAttr, V.black `on` V.yellow) ]
 
 draw :: Wallet -> [Widget Name]
-draw w = repl <> [ui]
+draw w = dispatch <> [ui]
   where
     l :: Listo
     l = txsOf w
 
     -- repl | dialOf w  = [D.renderDialog dia $ C.center $ txt "Super REPL here"]
-    repl = case focusGetCurrent $ focOf w of
-      Just MsgField ->
-        [ C.centerLayer
-          . vLimit 6
-          . hLimitPercent 50
-          . B.borderWithLabel (txt "Pact REPL")
-          $ renderForm (replOf w) <=> C.hCenter (txt "[Enter]")
-        ]
-      _ -> []
+    dispatch :: [Widget Name]
+    dispatch = case focusGetCurrent $ focOf w of
+      Just ReplCode -> [repl]
+      _             -> []
+
+    repl :: Widget Name
+    repl = C.centerLayer
+           . vLimit 6
+           . hLimitPercent 50
+           . B.borderWithLabel (txt "Pact REPL")
+           $ renderForm (replOf w) <=> C.hCenter (txt "[Esc] [Enter]")
 
     -- dia :: D.Dialog Choice
     -- dia = D.dialog (Just "Pact REPL") (Just (0, [("No", No), ("Yes", Yes)])) 40
@@ -229,15 +211,24 @@ event :: Env -> Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
 event e w be = case focusGetCurrent $ focOf w of
   Nothing       -> continue w
   Just TXList   -> mainEvent e w be
-  Just MsgField -> replEvent w be
+  Just ReplCode -> replEvent e w be
 
-replEvent :: Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
-replEvent w ev@(VtyEvent ve) = case ve of
+replEvent :: Env -> Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
+replEvent e w ev@(VtyEvent ve) = case ve of
   -- Close Popups --
-  V.EvKey V.KEsc [] -> continue (w & field @"focOf"  %~ focusSetCurrent TXList)
+  V.EvKey V.KEsc [] -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
+
+  -- Submission --
+  V.EvKey V.KEnter []
+    | not (allFieldsValid $ replOf w) -> continue w
+    | otherwise -> do
+        t <- liftIO . call e (unsafeChainId 0) . rpc . formState $ replOf w
+        continue $ w & field @"focOf" %~ focusSetCurrent TXList
+                     & field @"txsOf" %~ L.listInsert 0 (T <$> t)
+
   -- Code Input --
   _ -> handleFormEventL (field @"replOf") w ev >>= continue
-replEvent w _ = continue w
+replEvent _ w _ = continue w
 
 mainEvent :: Env -> Wallet -> BrickEvent Name e -> EventM Name (Next Wallet)
 mainEvent e w (VtyEvent ve) = case ve of
@@ -252,7 +243,7 @@ mainEvent e w (VtyEvent ve) = case ve of
       continue (w & field @"txsOf" %~ L.listInsert 0 (T <$> t))
 
   -- REPL Form --
-  V.EvKey (V.KChar 'r') [] -> continue (w & field @"focOf"  %~ focusSetCurrent MsgField)
+  V.EvKey (V.KChar 'r') [] -> continue (w & field @"focOf"  %~ focusSetCurrent ReplCode)
 
   -- TODO This can probably get prettier.
   -- History Selection --
@@ -284,10 +275,3 @@ handleFormEventL :: Eq n => Lens' s (Form x e n) -> s -> BrickEvent n e -> Event
 handleFormEventL l s ev = do
   f' <- handleFormEvent ev (s ^. l)
   pure (s & l .~ f')
-
-{-
-
-  _ -> handleFormEvent ev (replOf w) >>= continue . (\f' -> set (field @"replOf") f' w)
-    -- form' <- handleFormEvent ev (replOf w)
-    -- continue (w & field @"replOf" .~ form')
--}
