@@ -3,12 +3,14 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase         #-}
 {-# LANGUAGE OverloadedStrings  #-}
+{-# LANGUAGE RankNTypes         #-}
 {-# LANGUAGE TypeApplications   #-}
 
 module Main ( main ) where
 
 import           Brick
 import qualified Brick.AttrMap as A
+import           Brick.Focus
 import           Brick.Forms
 import qualified Brick.Widgets.Border as B
 import qualified Brick.Widgets.Center as C
@@ -116,21 +118,17 @@ data Wallet = Wallet
   { txsOf  :: Listo
   , currOf :: Maybe TXResult
   , logOf  :: Text
-  , dialOf :: Bool }
+  , focOf  :: FocusRing Name
+  , replOf :: Form REPL () Name }
   deriving (Generic)
 
--- | Container for all one-off forms I intend to use.
-data Forms e = Forms { replF :: Form REPL e Name }
-
 data From = R Receipt | T TXResult
-
-data Choice = No | Yes
 
 -- data REPL = REPL !ChainId !PactCode
 data REPL = REPL Text deriving stock (Generic)
 
 -- | Resource names.
-data Name = TXList | MsgField deriving stock (Eq, Ord, Show)
+data Name = TXList | MsgField deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 header :: Widget a
 header = vLimit 1 . C.center $ txt " The Bag of Holding "
@@ -155,19 +153,23 @@ main = do
     Right e -> void $ defaultMain (app e) initial
   where
     initial :: Wallet
-    initial = Wallet (L.list TXList mempty 1) Nothing "" False
+    initial = Wallet
+      (L.list TXList mempty 1)
+      Nothing
+      ""
+      (focusRing [minBound ..])
+      (replForm $ REPL "")
 
     opts :: ParserInfo Args
     opts = info (pArgs <**> helper)
         (fullDesc <> progDesc "The Bag of Holding: A Chainweb Wallet")
 
-    app :: Env -> App Wallet e Name
-    app e = App { appDraw = draw (Forms (replForm $ REPL ""))
-                , appChooseCursor = showFirstCursor
+    app :: Env -> App Wallet () Name
+    app e = App { appDraw = draw
+                , appChooseCursor = focusRingCursor focOf
                 , appHandleEvent = event e
                 , appStartEvent = pure
-                , appAttrMap = const $ A.attrMap V.defAttr attrs
-                }
+                , appAttrMap = const $ A.attrMap V.defAttr attrs }
 
     attrs :: [(AttrName, V.Attr)]
     attrs = [ -- (L.listAttr,         V.white `on` V.blue)
@@ -175,24 +177,24 @@ main = do
             , (E.editAttr,           V.white `on` V.black)
             , (E.editFocusedAttr,    V.black `on` V.yellow)
             , (invalidFormInputAttr, V.white `on` V.red)
-            , (focusedFormInputAttr, V.black `on` V.yellow)
-            ]
+            , (focusedFormInputAttr, V.black `on` V.yellow) ]
 
-draw :: Forms e -> Wallet -> [Widget Name]
-draw fs w = repl <> [ui]
+draw :: Wallet -> [Widget Name]
+draw w = repl <> [ui]
   where
     l :: Listo
     l = txsOf w
 
     -- repl | dialOf w  = [D.renderDialog dia $ C.center $ txt "Super REPL here"]
-    repl | not (dialOf w) = []
-         | otherwise =
-           [ C.centerLayer
-             . vLimit 6
-             . hLimitPercent 50
-             . B.borderWithLabel (txt "Pact REPL")
-             $ renderForm (replF fs) <=> C.hCenter (txt "[Enter]")
-           ]
+    repl = case focusGetCurrent $ focOf w of
+      Just MsgField ->
+        [ C.centerLayer
+          . vLimit 6
+          . hLimitPercent 50
+          . B.borderWithLabel (txt "Pact REPL")
+          $ renderForm (replOf w) <=> C.hCenter (txt "[Enter]")
+        ]
+      _ -> []
 
     -- dia :: D.Dialog Choice
     -- dia = D.dialog (Just "Pact REPL") (Just (0, [("No", No), ("Yes", Yes)])) 40
@@ -223,8 +225,22 @@ draw fs w = repl <> [ui]
       where
         foo = maybe "Select a Transaction" (tencode . txr) $ currOf w
 
-event :: Env -> Wallet -> BrickEvent Name e -> EventM Name (Next Wallet)
-event e w (VtyEvent ve) = case ve of
+event :: Env -> Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
+event e w be = case focusGetCurrent $ focOf w of
+  Nothing       -> continue w
+  Just TXList   -> mainEvent e w be
+  Just MsgField -> replEvent w be
+
+replEvent :: Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
+replEvent w ev@(VtyEvent ve) = case ve of
+  -- Close Popups --
+  V.EvKey V.KEsc [] -> continue (w & field @"focOf"  %~ focusSetCurrent TXList)
+  -- Code Input --
+  _ -> handleFormEventL (field @"replOf") w ev >>= continue
+replEvent w _ = continue w
+
+mainEvent :: Env -> Wallet -> BrickEvent Name e -> EventM Name (Next Wallet)
+mainEvent e w (VtyEvent ve) = case ve of
   -- Quit --
   V.EvKey (V.KChar 'q') [] -> halt w
 
@@ -235,8 +251,8 @@ event e w (VtyEvent ve) = case ve of
       t <- liftIO $ call e cid c
       continue (w & field @"txsOf" %~ L.listInsert 0 (T <$> t))
 
-  -- REPL Dialog --
-  V.EvKey (V.KChar 'r') [] -> continue (w & field @"dialOf" %~ not)
+  -- REPL Form --
+  V.EvKey (V.KChar 'r') [] -> continue (w & field @"focOf"  %~ focusSetCurrent MsgField)
 
   -- TODO This can probably get prettier.
   -- History Selection --
@@ -256,8 +272,22 @@ event e w (VtyEvent ve) = case ve of
   where
     cid :: ChainId
     cid = unsafeChainId 0  -- TODO Needs to come from elsewhere!
-event _ w _ = continue w
+mainEvent _ w _ = continue w
+
 
 -- TODO Emily halp
 -- from :: Traversal' Listo From
 from = field @"txsOf" . to L.listSelectedElement . _Just . _2 . _Right
+
+-- | A missing primitive from `brick`.
+handleFormEventL :: Eq n => Lens' s (Form x e n) -> s -> BrickEvent n e -> EventM n s
+handleFormEventL l s ev = do
+  f' <- handleFormEvent ev (s ^. l)
+  pure (s & l .~ f')
+
+{-
+
+  _ -> handleFormEvent ev (replOf w) >>= continue . (\f' -> set (field @"replOf") f' w)
+    -- form' <- handleFormEvent ev (replOf w)
+    -- continue (w & field @"replOf" .~ form')
+-}
