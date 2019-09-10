@@ -200,10 +200,10 @@ draw w = dispatch <> [ui]
 
     -- TODO Consider `round` border style.
     left :: Widget Name
-    left = B.borderWithLabel (txt " Transaction History ") txs
+    left = hLimitPercent 50 $ B.borderWithLabel (txt " Transaction History ") txs
 
     txs :: Widget Name
-    txs | Seq.null (l ^. L.listElementsL) = C.center $ txt "No transactions yet!"
+    txs | Seq.null (l ^. L.listElementsL) = txt "No transactions yet!" <+> fill ' '
         | otherwise = L.renderList (const txListItem) True l
 
     txListItem :: TX -> Widget Name
@@ -223,7 +223,7 @@ draw w = dispatch <> [ui]
           Send  -> "SEND"
 
     right :: Widget Name
-    right = B.borderWithLabel (txt " Transaction Result ") . C.center $ txt contents
+    right = B.borderWithLabel (txt " Transaction Result ") $ txt contents <=> fill ' '
       where
         contents :: Text
         contents = case w ^? from of
