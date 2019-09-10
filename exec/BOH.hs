@@ -82,14 +82,22 @@ env (Args v fp acc url) = runExceptT $ do
   mn <- lift $ newManager tlsManagerSettings
   pure $ Env v (ClientEnv mn url Nothing) ks acc
 
-call :: Env -> ChainId -> PactCode -> IO (Either ClientError TXResult)
-call e cid c = do
+--------------------------------------------------------------------------------
+-- Endpoint Calling
+
+call :: Env -> Endpoint -> ChainId -> PactCode -> IO TX
+call e ep cid c = do
   m <- meta (accOf e) cid
   tx <- transaction c (keysOf e) m
-  runClientM (local (verOf e) cid tx) (clenvOf e)
+  TX cid c <$> runClientM (f tx) (clenvOf e)
+  where
+    f :: Transaction -> ClientM From
+    f = case ep of
+          Local -> fmap T . local (verOf e) cid
+          Send  -> fmap R . send (verOf e) cid
 
 --------------------------------------------------------------------------------
--- Brick
+-- Terminal UI
 
 type Listo = L.GenericList Name Seq TX
 
@@ -235,10 +243,9 @@ replEvent e w ev@(VtyEvent ve) = case ve of
     | not (allFieldsValid $ replOf w) -> continue w
     | otherwise -> do
         let fs = formState $ replOf w
-        t <- liftIO . call e (rcid fs) $ rpc fs
-        let i = TX (rcid fs) (rpc fs) (T <$> t)
+        t <- liftIO . call e (re fs) (rcid fs) $ rpc fs
         continue $ w & field @"focOf" %~ focusSetCurrent TXList
-                     & field @"txsOf" %~ L.listInsert 0 i
+                     & field @"txsOf" %~ L.listInsert 0 t
 
   -- Code Input --
   _ -> handleFormEventL (field @"replOf") w ev >>= continue
