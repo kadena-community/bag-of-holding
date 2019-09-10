@@ -251,7 +251,7 @@ replEvent e w ev@(VtyEvent ve) = case ve of
         let fs = formState $ replOf w
         t <- liftIO . call e (re fs) (rcid fs) $ rpc fs
         continue $ w & field @"focOf" %~ focusSetCurrent TXList
-                     & field @"txsOf" %~ L.listInsert 0 t
+                     & field @"txsOf" %~ (L.listMoveTo 0 . L.listInsert 0 t)
 
   -- Code Input --
   _ -> handleFormEventL (field @"replOf") w ev >>= continue
