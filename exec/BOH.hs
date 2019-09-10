@@ -25,7 +25,6 @@ import           Control.Monad.Trans.Maybe (MaybeT(..), runMaybeT)
 import           Data.Generics.Product.Fields (field)
 import           Data.Generics.Product.Positions (position)
 import           Data.Generics.Sum.Constructors (_Ctor)
-import           Data.Generics.Wrapped (_Unwrapped)
 import qualified Graphics.Vty as V
 import           Holding
 import           Lens.Micro
@@ -223,15 +222,16 @@ draw w = dispatch <> [ui]
           Send  -> "SEND"
 
     right :: Widget Name
-    right = B.borderWithLabel (txt " Transaction Result ") $ txt contents <=> fill ' '
+    right = B.borderWithLabel (txt " Transaction Result ") $ contents <=> fill ' '
       where
-        contents :: Text
+        contents :: Widget Name
         contents = case w ^? from of
-          Nothing             -> "Select a Transaction"
+          Nothing             -> txt "Select a Transaction"
           Just (TX _ _ _ eef) -> case eef of
-            Left _      -> "This Transaction had an HTTP failure."
-            Right (R r) -> r ^. _Unwrapped . to tencode
-            Right (T t) -> tencode $ txr t
+            Left _      -> txt "This Transaction had an HTTP failure."
+            Right (T t) -> txt . tencode $ txr t
+            Right (R r) -> vBox [ txt $ prettyReceipt r
+                                , padTop (Pad 1) $ txt "Press [Enter] to query the result." ]
 
 event :: Env -> Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
 event e w be = case focusGetCurrent $ focOf w of

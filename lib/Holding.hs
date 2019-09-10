@@ -21,6 +21,7 @@ module Holding
   , meta
   , txTime
   , Receipt
+  , prettyReceipt
   , TXResult(..)
   , pactValue
     -- * Calling Pact
@@ -196,6 +197,9 @@ txTime = do
 -- can be used again as input to other calls to inspect the final results of
 -- that `Transaction`.
 newtype Receipt = Receipt P.RequestKey deriving stock (Generic)
+
+prettyReceipt :: Receipt -> Text
+prettyReceipt (Receipt r) = P.requestKeyToB16Text r
 
 -- | The final result/outcome of some sent `Transaction`.
 newtype TXResult = TXResult { txr :: (P.CommandResult P.Hash) }
