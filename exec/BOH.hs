@@ -89,7 +89,7 @@ call :: Env -> Endpoint -> ChainId -> PactCode -> IO TX
 call e ep cid c = do
   m  <- meta (accOf e) cid
   tx <- transaction c (keysOf e) m
-  TX cid c <$> runClientM (f tx) (clenvOf e)
+  TX cid ep c <$> runClientM (f tx) (clenvOf e)
   where
     f :: Transaction -> ClientM From
     f = case ep of
@@ -101,7 +101,8 @@ call e ep cid c = do
 
 type Listo = L.GenericList Name Seq TX
 
-data TX = TX ChainId PactCode (Either ClientError From) deriving stock (Generic)
+data TX = TX ChainId Endpoint PactCode (Either ClientError From)
+  deriving stock (Generic)
 
 data Wallet = Wallet
   { txsOf  :: Listo
@@ -206,24 +207,28 @@ draw w = dispatch <> [ui]
         | otherwise = L.renderList (const txListItem) True l
 
     txListItem :: TX -> Widget Name
-    txListItem (TX cid pc eef) = vLimit 1 $ hBox
-      [ hLimit 1 (txt icon)
+    txListItem (TX cid ep pc eef) = vLimit 1 $ hBox
+      [ hLimit 1 $ txt icon
       , padLeft (Pad 2) . str $ printf "%02d" (chainIdInt cid :: Int)
+      , padLeft (Pad 2) $ txt end
       , padLeft (Pad 2) . txt $ prettyCode pc
       , fill ' ' ]
       where
         icon = case eef of
           Left _      -> "☹"
-          Right (R _) -> "⌛"
+          Right (R _) -> "?"
           Right (T t) -> maybe "☹" (const "✓") (t ^? pactValue)
+        end = case ep of
+          Local -> "LOCL"
+          Send  -> "SEND"
 
     right :: Widget Name
     right = B.borderWithLabel (txt " Transaction Result ") . C.center $ txt contents
       where
         contents :: Text
         contents = case w ^? from of
-          Nothing           -> "Select a Transaction"
-          Just (TX _ _ eef) -> case eef of
+          Nothing             -> "Select a Transaction"
+          Just (TX _ _ _ eef) -> case eef of
             Left _      -> "This Transaction had an HTTP failure."
             Right (R r) -> r ^. _Unwrapped . to tencode
             Right (T t) -> tencode $ txr t
@@ -265,10 +270,10 @@ mainEvent e w (VtyEvent ve) = case ve of
     where
       f :: IO (Maybe Wallet)
       f = runMaybeT $ do
-        TX cid _ eef <- hoistMaybe (w ^? from)
+        TX cid _ _ eef <- hoistMaybe (w ^? from)
         r <- hoistMaybe (eef ^? _Right . _Ctor @"R")
         t <- MaybeT . fmap (join . hush) $ runClientM (listen (verOf e) cid r) (clenvOf e)
-        pure (w & field @"txsOf" %~ (L.listModify (set (position @3) (Right $ T t))))
+        pure (w & field @"txsOf" %~ (L.listModify (set (position @4) (Right $ T t))))
 
   -- Keyboard Navigation --
   ev -> do
