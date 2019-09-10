@@ -104,10 +104,13 @@ data Wallet = Wallet
 
 data From = R Receipt | T TXResult deriving (Generic)
 
-data REPL = REPL { rcid :: ChainId, rpc :: PactCode } deriving stock (Generic)
+data Endpoint = Local | Send deriving (Eq)
+
+data REPL = REPL { rcid :: ChainId, re :: Endpoint, rpc :: PactCode }
+  deriving stock (Generic)
 
 -- | Resource names.
-data Name = TXList | ChainField | ReplField
+data Name = TXList | ReplChain | ReplLocal | ReplSend | ReplCode
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 header :: Widget a
@@ -116,15 +119,17 @@ header = vLimit 1 . C.center $ txt " The Bag of Holding "
 footer :: Text -> Widget a
 footer t = vLimit 1 $ txt (T.take 10 t) <+> C.hCenter legend
   where
-    legend = txt "[T]ransaction - Pact [R]EPL - [H]elp - [Q]uit"
+    legend = txt "[T]ransaction - [H]elp - [Q]uit"
 
 -- TODO Make it validate the `ChainId` against known values from the current
 -- `ChainwebVersion`.
 replForm :: REPL -> Form REPL e Name
 replForm = newForm
-  [ label "Chain" @@= editField (field @"rcid") ChainField Nothing
+  [ label "Chain" @@= editField (field @"rcid") ReplChain Nothing
     toText (chainIdFromText . T.unlines) (txt . T.unlines) id
-  , label "Pact Code" @@= editField (field @"rpc") ReplField Nothing
+  , label "Endpoint" @@= radioField (field @"re")
+    [(Local, ReplLocal, "Local"), (Send, ReplSend, "Send")]
+  , label "Pact Code" @@= editField (field @"rpc") ReplCode Nothing
     prettyCode (code . T.unlines) (txt . T.unlines) id
   ]
   where
@@ -142,7 +147,7 @@ main = do
       (L.list TXList mempty 1)
       ""
       (focusRing [minBound ..])
-      (replForm . REPL (unsafeChainId 0) . fromJust $ code "(+ 1 1)")
+      (replForm . REPL (unsafeChainId 0) Local . fromJust $ code "(+ 1 1)")
 
     opts :: ParserInfo Args
     opts = info (pArgs <**> helper)
@@ -169,17 +174,16 @@ draw w = dispatch <> [ui]
     l :: Listo
     l = txsOf w
 
-    -- repl | dialOf w  = [D.renderDialog dia $ C.center $ txt "Super REPL here"]
     dispatch :: [Widget Name]
     dispatch = case focusGetCurrent $ focOf w of
-      Just ReplField -> [repl]
-      _              -> []
+      Just ReplCode -> [repl]
+      _             -> []
 
     repl :: Widget Name
     repl = C.centerLayer
-           . vLimit 7
+           . vLimit 10
            . hLimitPercent 50
-           . B.borderWithLabel (txt "Pact REPL")
+           . B.borderWithLabel (txt " Pact Transaction ")
            $ renderForm (replOf w) <=> C.hCenter (txt "[Esc] [Enter]")
 
     ui :: Widget Name
@@ -217,10 +221,9 @@ draw w = dispatch <> [ui]
 
 event :: Env -> Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
 event e w be = case focusGetCurrent $ focOf w of
-  Nothing         -> continue w
-  Just TXList     -> mainEvent e w be
-  Just ReplField  -> replEvent e w be
-  Just ChainField -> replEvent e w be -- TODO avoid repitition
+  Nothing     -> continue w
+  Just TXList -> mainEvent e w be
+  Just _      -> replEvent e w be
 
 replEvent :: Env -> Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
 replEvent e w ev@(VtyEvent ve) = case ve of
@@ -246,8 +249,8 @@ mainEvent e w (VtyEvent ve) = case ve of
   -- Quit --
   V.EvKey (V.KChar 'q') [] -> halt w
 
-  -- REPL Form --
-  V.EvKey (V.KChar 'r') [] -> continue (w & field @"focOf"  %~ focusSetCurrent ReplField)
+  -- Transaction Form --
+  V.EvKey (V.KChar 't') [] -> continue (w & field @"focOf"  %~ focusSetCurrent ReplCode)
 
   -- History Selection --
   V.EvKey V.KEnter [] -> liftIO f >>= continue . fromMaybe w
