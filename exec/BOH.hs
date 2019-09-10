@@ -87,7 +87,7 @@ env (Args v fp acc url) = runExceptT $ do
 
 call :: Env -> Endpoint -> ChainId -> PactCode -> IO TX
 call e ep cid c = do
-  m <- meta (accOf e) cid
+  m  <- meta (accOf e) cid
   tx <- transaction c (keysOf e) m
   TX cid c <$> runClientM (f tx) (clenvOf e)
   where
@@ -206,10 +206,11 @@ draw w = dispatch <> [ui]
         | otherwise = L.renderList (const txListItem) True l
 
     txListItem :: TX -> Widget Name
-    txListItem (TX cid pc eef) = hBox
+    txListItem (TX cid pc eef) = vLimit 1 $ hBox
       [ hLimit 1 (txt icon)
       , padLeft (Pad 2) . str $ printf "%02d" (chainIdInt cid :: Int)
-      , padLeft (Pad 2) . txt $ prettyCode pc ]
+      , padLeft (Pad 2) . txt $ prettyCode pc
+      , fill ' ' ]
       where
         icon = case eef of
           Left _      -> "☹"
