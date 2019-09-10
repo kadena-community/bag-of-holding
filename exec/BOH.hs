@@ -125,7 +125,7 @@ replForm = newForm
   [ label "Chain" @@= editField (field @"rcid") ChainField Nothing
     toText (chainIdFromText . T.unlines) (txt . T.unlines) id
   , label "Pact Code" @@= editField (field @"rpc") ReplField Nothing
-    (^. _Unwrapped) (code . T.unlines) (txt . T.unlines) id
+    prettyCode (code . T.unlines) (txt . T.unlines) id
   ]
   where
     label :: Text -> Widget Name -> Widget Name
