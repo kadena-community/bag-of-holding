@@ -22,6 +22,7 @@ import           Chainweb.Version
 import           Control.Error.Util (hush, (!?))
 import           Control.Monad.Trans.Except (runExceptT)
 import           Data.Generics.Product.Fields (field)
+import           Text.Printf (printf)
 -- import           Data.Generics.Product.Typed (typed)
 import           Data.Generics.Wrapped (_Unwrapped)
 import qualified Graphics.Vty as V
@@ -91,7 +92,9 @@ call e cid c = do
 --------------------------------------------------------------------------------
 -- Brick
 
-type Listo = L.GenericList Name Seq (Either ClientError From)
+type Listo = L.GenericList Name Seq TX
+
+data TX = TX ChainId PactCode (Either ClientError From) deriving stock (Generic)
 
 data Wallet = Wallet
   { txsOf  :: Listo
@@ -99,14 +102,15 @@ data Wallet = Wallet
   , logOf  :: Text
   , focOf  :: FocusRing Name
   , replOf :: Form REPL () Name }
-  deriving (Generic)
+  deriving stock (Generic)
 
 data From = R Receipt | T TXResult
 
 data REPL = REPL { rcid :: ChainId, rpc :: PactCode } deriving stock (Generic)
 
 -- | Resource names.
-data Name = TXList | ChainField | ReplField deriving stock (Eq, Ord, Show, Enum, Bounded)
+data Name = TXList | ChainField | ReplField
+  deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 header :: Widget a
 header = vLimit 1 . C.center $ txt " The Bag of Holding "
@@ -116,6 +120,8 @@ footer t = vLimit 1 $ txt (T.take 10 t) <+> C.hCenter legend
   where
     legend = txt "[T]ransaction - Pact [R]EPL - [H]elp - [Q]uit"
 
+-- TODO Make it validate the `ChainId` against known values from the current
+-- `ChainwebVersion`.
 replForm :: REPL -> Form REPL e Name
 replForm = newForm
   [ label "Chain" @@= editField (field @"rcid") ChainField Nothing
@@ -179,9 +185,6 @@ draw w = dispatch <> [ui]
            . B.borderWithLabel (txt "Pact REPL")
            $ renderForm (replOf w) <=> C.hCenter (txt "[Esc] [Enter]")
 
-    -- dia :: D.Dialog Choice
-    -- dia = D.dialog (Just "Pact REPL") (Just (0, [("No", No), ("Yes", Yes)])) 40
-
     ui :: Widget Name
     ui = header <=> (left <+> right) <=> footer (logOf w)
 
@@ -193,15 +196,16 @@ draw w = dispatch <> [ui]
     txs | Seq.null (l ^. L.listElementsL) = C.center $ txt "No transactions yet!"
         | otherwise = L.renderList (const f) True l
 
-    f :: Either ClientError From -> Widget Name
-    f (Left _)      = hLimit 1 (txt "☹") <+> C.hCenter (txt "HTTP Failure")
-    f (Right (R r)) = hLimit 1 (txt "⌛") <+> C.hCenter (txt rkr)
+    f :: TX -> Widget Name
+    f (TX cid pc eef) = hBox
+      [ hLimit 1 (txt icon)
+      , padLeft (Pad 2) . str $ printf "%02d" (chainIdInt cid :: Int)
+      , padLeft (Pad 2) . txt $ prettyCode pc ]
       where
-        rkr = r ^. _Unwrapped . to P.requestKeyToB16Text
-    f (Right (T t)) = hLimit 1 (txt sym) <+> C.hCenter (txt rkt)
-      where
-        sym = maybe "☹" (const "✓") (t ^? pactValue)
-        rkt = t ^. _Unwrapped . P.crReqKey . to P.requestKeyToB16Text
+        icon = case eef of
+          Left _      -> "☹"
+          Right (R _) -> "⌛"
+          Right (T t) -> maybe "☹" (const "✓") (t ^? pactValue)
 
     right :: Widget Name
     right = B.borderWithLabel (txt " Transaction Result ") . C.center $ txt foo
@@ -226,8 +230,9 @@ replEvent e w ev@(VtyEvent ve) = case ve of
     | otherwise -> do
         let fs = formState $ replOf w
         t <- liftIO . call e (rcid fs) $ rpc fs
+        let i = TX (rcid fs) (rpc fs) (T <$> t)
         continue $ w & field @"focOf" %~ focusSetCurrent TXList
-                     & field @"txsOf" %~ L.listInsert 0 (T <$> t)
+                     & field @"txsOf" %~ L.listInsert 0 i
 
   -- Code Input --
   _ -> handleFormEventL (field @"replOf") w ev >>= continue
@@ -243,28 +248,27 @@ mainEvent e w (VtyEvent ve) = case ve of
 
   -- TODO This can probably get prettier.
   -- History Selection --
-  V.EvKey V.KEnter [] -> maybe (pure w) (liftIO . f) (w ^? from) >>= continue
-      where
-        f :: From -> IO Wallet
-        f (T t) = pure (w & field @"currOf" ?~ t)
-        f (R r) = join . hush <$> runClientM (listen (verOf e) cid r) (clenvOf e) >>= \case
-          Nothing -> pure w
-          Just t  -> pure $ w & field @"currOf" ?~ t
-                              & field @"txsOf"  %~ (L.listModify (const . Right $ T t))
+  V.EvKey V.KEnter [] -> continue w --maybe (pure w) (liftIO . f) (w ^? from) >>= continue
+      -- where
+      --   f :: TX -> IO Wallet
+      --   f (TX _ _ eef) = case eef of
+      --     Left _ -> pure w
+      --     Right (T t) -> pure (w & field @"currOf" ?~ t)
+      --     Right (R r) -> join . hush <$> runClientM (listen (verOf e) cid r) (clenvOf e) >>= \case
+      --       Nothing -> pure w
+      --       Just t  -> do
+      --         let i = TX _ _ _
+      --         pure $ w & field @"currOf" ?~ t
+      --                  & field @"txsOf"  %~ (L.listModify (const $ i))
 
   -- Keyboard Navigation --
   ev -> do
     l' <- L.handleListEventVi L.handleListEvent ev (txsOf w)
     continue (w & field @"txsOf" .~ l')
-  where
-    cid :: ChainId
-    cid = unsafeChainId 0  -- TODO Needs to come from elsewhere!
 mainEvent _ w _ = continue w
 
-
--- TODO Emily halp
--- from :: Traversal' Listo From
-from = field @"txsOf" . to L.listSelectedElement . _Just . _2 . _Right
+from :: SimpleFold Wallet TX
+from = field @"txsOf" . to L.listSelectedElement . _Just . _2
 
 -- | A missing primitive from `brick`.
 handleFormEventL :: Eq n => Lens' s (Form x e n) -> s -> BrickEvent n e -> EventM n s

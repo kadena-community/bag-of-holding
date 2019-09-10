@@ -142,7 +142,7 @@ keysFromFile = fmap (fmap hidden) . decodeFileStrict'
 --------------------------------------------------------------------------------
 -- Pact Code
 
-data PactCode = PactCode { rawOf :: !Text } deriving stock (Generic) --, codeOf :: ![P.Term P.Name] }
+data PactCode = PactCode { rawOf :: !Text } deriving stock (Generic)
 
 instance Show PactCode where
   show = T.unpack . prettyCode
