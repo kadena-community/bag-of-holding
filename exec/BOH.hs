@@ -19,11 +19,12 @@ import qualified Brick.Widgets.List as L
 import           Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
 import           Chainweb.Utils (textOption, toText)
 import           Chainweb.Version
-import           Control.Error.Util (hush, (!?))
+import           Control.Error.Util (hoistMaybe, hush, (!?))
 import           Control.Monad.Trans.Except (runExceptT)
+import           Control.Monad.Trans.Maybe (MaybeT(..), runMaybeT)
 import           Data.Generics.Product.Fields (field)
-import           Text.Printf (printf)
--- import           Data.Generics.Product.Typed (typed)
+import           Data.Generics.Product.Positions (position)
+import           Data.Generics.Sum.Constructors (_Ctor)
 import           Data.Generics.Wrapped (_Unwrapped)
 import qualified Graphics.Vty as V
 import           Holding
@@ -31,14 +32,12 @@ import           Lens.Micro
 import           Network.HTTP.Client (newManager)
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Options.Applicative hiding (footer, header, str)
-import qualified Pact.Types.Command as P
 import           RIO hiding (local, on)
 import           RIO.Partial (fromJust)
 import qualified RIO.Seq as Seq
 import qualified RIO.Text as T
 import           Servant.Client
-
----
+import           Text.Printf (printf)
 
 --------------------------------------------------------------------------------
 -- CLI Handling
@@ -98,13 +97,12 @@ data TX = TX ChainId PactCode (Either ClientError From) deriving stock (Generic)
 
 data Wallet = Wallet
   { txsOf  :: Listo
-  , currOf :: Maybe TXResult
   , logOf  :: Text
   , focOf  :: FocusRing Name
   , replOf :: Form REPL () Name }
   deriving stock (Generic)
 
-data From = R Receipt | T TXResult
+data From = R Receipt | T TXResult deriving (Generic)
 
 data REPL = REPL { rcid :: ChainId, rpc :: PactCode } deriving stock (Generic)
 
@@ -142,7 +140,6 @@ main = do
     initial :: Wallet
     initial = Wallet
       (L.list TXList mempty 1)
-      Nothing
       ""
       (focusRing [minBound ..])
       (replForm . REPL (unsafeChainId 0) . fromJust $ code "(+ 1 1)")
@@ -194,10 +191,10 @@ draw w = dispatch <> [ui]
 
     txs :: Widget Name
     txs | Seq.null (l ^. L.listElementsL) = C.center $ txt "No transactions yet!"
-        | otherwise = L.renderList (const f) True l
+        | otherwise = L.renderList (const txListItem) True l
 
-    f :: TX -> Widget Name
-    f (TX cid pc eef) = hBox
+    txListItem :: TX -> Widget Name
+    txListItem (TX cid pc eef) = hBox
       [ hLimit 1 (txt icon)
       , padLeft (Pad 2) . str $ printf "%02d" (chainIdInt cid :: Int)
       , padLeft (Pad 2) . txt $ prettyCode pc ]
@@ -208,9 +205,15 @@ draw w = dispatch <> [ui]
           Right (T t) -> maybe "☹" (const "✓") (t ^? pactValue)
 
     right :: Widget Name
-    right = B.borderWithLabel (txt " Transaction Result ") . C.center $ txt foo
+    right = B.borderWithLabel (txt " Transaction Result ") . C.center $ txt contents
       where
-        foo = maybe "Select a Transaction" (tencode . txr) $ currOf w
+        contents :: Text
+        contents = case w ^? from of
+          Nothing           -> "Select a Transaction"
+          Just (TX _ _ eef) -> case eef of
+            Left _      -> "This Transaction had an HTTP failure."
+            Right (R r) -> r ^. _Unwrapped . to tencode
+            Right (T t) -> tencode $ txr t
 
 event :: Env -> Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
 event e w be = case focusGetCurrent $ focOf w of
@@ -246,20 +249,15 @@ mainEvent e w (VtyEvent ve) = case ve of
   -- REPL Form --
   V.EvKey (V.KChar 'r') [] -> continue (w & field @"focOf"  %~ focusSetCurrent ReplField)
 
-  -- TODO This can probably get prettier.
   -- History Selection --
-  V.EvKey V.KEnter [] -> continue w --maybe (pure w) (liftIO . f) (w ^? from) >>= continue
-      -- where
-      --   f :: TX -> IO Wallet
-      --   f (TX _ _ eef) = case eef of
-      --     Left _ -> pure w
-      --     Right (T t) -> pure (w & field @"currOf" ?~ t)
-      --     Right (R r) -> join . hush <$> runClientM (listen (verOf e) cid r) (clenvOf e) >>= \case
-      --       Nothing -> pure w
-      --       Just t  -> do
-      --         let i = TX _ _ _
-      --         pure $ w & field @"currOf" ?~ t
-      --                  & field @"txsOf"  %~ (L.listModify (const $ i))
+  V.EvKey V.KEnter [] -> liftIO f >>= continue . fromMaybe w
+    where
+      f :: IO (Maybe Wallet)
+      f = runMaybeT $ do
+        TX cid _ eef <- hoistMaybe (w ^? from)
+        r <- hoistMaybe (eef ^? _Right . _Ctor @"R")
+        t <- MaybeT . fmap (join . hush) $ runClientM (listen (verOf e) cid r) (clenvOf e)
+        pure (w & field @"txsOf" %~ (L.listModify (set (position @3) (Right $ T t))))
 
   -- Keyboard Navigation --
   ev -> do
