@@ -156,8 +156,6 @@ code t = hush (P.parseExprs t) >>= hush . P.compileExps P.mkEmptyInfo >> pure (P
 
 -- | Pretty-print some `PactCode`.
 prettyCode :: PactCode -> Text
--- prettyCode = renderStrict . layoutPretty defaultLayoutOptions . P.pretty . codeOf
--- prettyCode = T.pack . P.renderPrettyString P.RPlain . codeOf
 prettyCode = rawOf
 
 -- | Will fail with `Nothing` if the file couldn't be parsed as legal Pact.
@@ -178,10 +176,9 @@ transaction (PactCode pc) (Keys ks) pm =
 -- Pact Communication
 
 -- | A "Coin Contract" account.
-newtype Account = Account Text
+newtype Account = Account Text deriving (Generic)
 
 -- TODO Come up with a sane default `GasPrice`.
--- TODO What is the difference between the two gas values?
 -- | To feed to the `transaction` function.
 meta :: Account -> ChainId -> IO P.PublicMeta
 meta (Account t) c = P.PublicMeta c' t gl gp (P.TTLSeconds 3600) <$> txTime

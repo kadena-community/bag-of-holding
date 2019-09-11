@@ -25,6 +25,7 @@ import           Control.Monad.Trans.Maybe (MaybeT(..), runMaybeT)
 import           Data.Generics.Product.Fields (field)
 import           Data.Generics.Product.Positions (position)
 import           Data.Generics.Sum.Constructors (_Ctor)
+import           Data.Generics.Wrapped (_Unwrapped)
 import qualified Graphics.Vty as V
 import           Holding
 import           Lens.Micro
@@ -118,7 +119,7 @@ data REPL = REPL { rcid :: ChainId, re :: Endpoint, rpc :: PactCode }
   deriving stock (Generic)
 
 -- | Resource names.
-data Name = TXList | ReplChain | ReplLocal | ReplSend | ReplCode
+data Name = TXList | ReplChain | ReplLocal | ReplSend | ReplCode | Help
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 header :: Widget a
@@ -162,7 +163,7 @@ main = do
         (fullDesc <> progDesc "The Bag of Holding: A Chainweb Wallet")
 
     app :: Env -> App Wallet () Name
-    app e = App { appDraw = draw
+    app e = App { appDraw = draw e
                 , appChooseCursor = focusRingCursor focOf
                 , appHandleEvent = event e
                 , appStartEvent = pure
@@ -176,34 +177,49 @@ main = do
             , (invalidFormInputAttr, V.white `on` V.red)
             , (focusedFormInputAttr, V.black `on` V.yellow) ]
 
-draw :: Wallet -> [Widget Name]
-draw w = dispatch <> [ui]
+draw :: Env -> Wallet -> [Widget Name]
+draw e w = dispatch <> [ui]
   where
-    l :: Listo
-    l = txsOf w
+    ui :: Widget Name
+    ui = header <=> (left <+> right) <=> footer (logOf w)
 
     dispatch :: [Widget Name]
     dispatch = case focusGetCurrent $ focOf w of
       Just ReplCode -> [repl]
+      Just Help     -> [he1p]
       _             -> []
 
     repl :: Widget Name
-    repl = C.centerLayer
-           . vLimit 10
-           . hLimitPercent 50
+    repl = C.centerLayer . vLimit 10 . hLimitPercent 50
            . B.borderWithLabel (txt " Pact Transaction ")
            $ renderForm (replOf w) <=> C.hCenter (txt "[Esc] [Enter]")
 
-    ui :: Widget Name
-    ui = header <=> (left <+> right) <=> footer (logOf w)
+    -- TODO Look into text wrapping.
+    he1p :: Widget Name
+    he1p = C.centerLayer . vLimit 16 . hLimitPercent 50 . B.borderWithLabel (txt " Help ")
+           $ vBox
+           [ C.hCenter . padBottom (Pad 1) $ txt "The Bag of Holding - A Chainweb Wallet"
+           , txt "Author:   Colin Woodbury"
+           , txt "Issues:   " <+> hyperlink url (txt url)
+           , txt $ "Chainweb: " <> toText (verOf e)
+           , txt $ "Account:  " <> (accOf e ^. _Unwrapped)
+           , padTop (Pad 1) $ txt "A note on endpoints:"
+           , txt "LOCAL: Transaction is 'free', but results aren't"
+           , txt "       saved to the blockchain. Returns instantly."
+           , txt "SEND:  Transaction is mined into a block."
+           , txt "       Costs gas and takes time for the results."
+           , padTop (Pad 1) $ C.hCenter (txt "Press any key.")
+           ]
+      where
+        url = "gitlab.com/fosskers/bag-of-holding"
 
     -- TODO Consider `round` border style.
     left :: Widget Name
     left = hLimitPercent 50 $ B.borderWithLabel (txt " Transaction History ") txs
 
     txs :: Widget Name
-    txs | Seq.null (l ^. L.listElementsL) = txt "No transactions yet!" <+> fill ' '
-        | otherwise = L.renderList (const txListItem) True l
+    txs | Seq.null (txsOf w ^. L.listElementsL) = txt "No transactions yet!" <+> fill ' '
+        | otherwise = L.renderList (const txListItem) True $ txsOf w
 
     txListItem :: TX -> Widget Name
     txListItem (TX cid ep pc eef) = vLimit 1 $ hBox
@@ -226,7 +242,7 @@ draw w = dispatch <> [ui]
       where
         contents :: Widget Name
         contents = case w ^? from of
-          Nothing             -> txt "Select a Transaction"
+          Nothing             -> txt "Select a Transaction."
           Just (TX _ _ _ eef) -> case eef of
             Left _      -> txt "This Transaction had an HTTP failure."
             Right (T t) -> txt . tencode $ txr t
@@ -237,6 +253,7 @@ event :: Env -> Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
 event e w be = case focusGetCurrent $ focOf w of
   Nothing     -> continue w
   Just TXList -> mainEvent e w be
+  Just Help   -> helpEvent w be
   Just _      -> replEvent e w be
 
 replEvent :: Env -> Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
@@ -257,13 +274,21 @@ replEvent e w ev@(VtyEvent ve) = case ve of
   _ -> handleFormEventL (field @"replOf") w ev >>= continue
 replEvent _ w _ = continue w
 
+helpEvent :: Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
+helpEvent w be = case be of
+  VtyEvent (V.EvKey _ []) -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
+  _ -> continue w
+
 mainEvent :: Env -> Wallet -> BrickEvent Name e -> EventM Name (Next Wallet)
 mainEvent e w (VtyEvent ve) = case ve of
   -- Quit --
   V.EvKey (V.KChar 'q') [] -> halt w
 
   -- Transaction Form --
-  V.EvKey (V.KChar 't') [] -> continue (w & field @"focOf"  %~ focusSetCurrent ReplCode)
+  V.EvKey (V.KChar 't') [] -> continue (w & field @"focOf" %~ focusSetCurrent ReplCode)
+
+  -- Help Window --
+  V.EvKey (V.KChar 'h') [] -> continue (w & field @"focOf" %~ focusSetCurrent Help)
 
   -- History Selection --
   V.EvKey V.KEnter [] -> liftIO f >>= continue . fromMaybe w
