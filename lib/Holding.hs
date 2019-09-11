@@ -50,12 +50,12 @@ import           Chainweb.Time
 import           Chainweb.Version
 import           Control.Error.Util (hush)
 import           Data.Aeson
-import           Data.Aeson.Encode.Pretty (encodePretty)
 import           Data.Aeson.Types (prependFailure, typeMismatch)
 import           Data.Generics.Wrapped (_Unwrapped)
 import           Data.Singletons
 import           Data.Text.Prettyprint.Doc (defaultLayoutOptions, layoutPretty)
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
+import           Data.Yaml.Pretty (defConfig, encodePretty)
 import           Lens.Micro (Traversal', _Right)
 import qualified Pact.ApiReq as P
 import qualified Pact.Compile as P
@@ -80,16 +80,18 @@ import           Text.Printf (printf)
 {- SCOPE
 
 DO:
-- Manage keys.
-- Allow single-chain transfers, cross-chain transfers, and balance checks (single-sig only).
-- Manage active `RequestKeys` in a sane way.
-- Allow short, custom TXs to be written.
-- Track health of the bootstrap nodes.
-- Pretty-print the results of TXs.
-- Show a history of recent TXs.
-- LISTEN ON PORT 9467 FOR SIGNING TXS IN DAPPS! HAVE MANUAL CONFIRMATION WITHIN WALLET!
-- Bare-bones REPL mode that sends gasless TXs to `local/`.
-- Show JSON'd config values in Help window.
+- [ ] Manage keys.
+- [ ] Allow simple transfers, cross-chain transfers, and balance checks (single-sig only).
+- [ ] Manage active `RequestKeys` in a sane way.
+- [x] Allow short, custom TXs to be written.
+- [ ] Track health of the bootstrap nodes.
+- [x] Pretty-print the results of TXs.
+- [x] Show a history of recent TXs.
+- [ ] LISTEN ON PORT 9467 FOR SIGNING TXS IN DAPPS! HAVE MANUAL CONFIRMATION WITHIN WALLET!
+- [x] Bare-bones REPL mode that sends gasless TXs to `local/`.
+- [ ] Show JSON'd config values in Help window.
+- [ ] Use `brick-skylighting` for syntax highlighting.
+- [x] Print TX results as YAML, not JSON.
 
 DON'T:
 - Be a module/transaction explorer.
@@ -280,4 +282,4 @@ cute = renderStrict . layoutPretty defaultLayoutOptions
 
 -- | Pretty-render a JSON value as strict `Text`.
 tencode :: ToJSON a => a -> Text
-tencode = T.decodeUtf8With lenientDecode . toStrictBytes . encodePretty . toJSON
+tencode = T.decodeUtf8With lenientDecode . encodePretty defConfig
