@@ -42,6 +42,7 @@ library
     , pact           ^>=3.2
     , prettyprinter  ^>=1.2
     , servant        ^>=0.16
+    , time ^>= 1.8
     , yaml           ^>=0.11
 
 executable boh

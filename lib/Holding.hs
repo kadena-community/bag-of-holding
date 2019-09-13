@@ -46,7 +46,6 @@ module Holding
   ) where
 
 import           Chainweb.Pact.RestAPI (pactApi)
-import           Chainweb.Time
 import           Chainweb.Version
 import           Control.Error.Util (hush)
 import           Data.Aeson
@@ -55,6 +54,7 @@ import           Data.Generics.Wrapped (_Unwrapped)
 import           Data.Singletons
 import           Data.Text.Prettyprint.Doc (defaultLayoutOptions, layoutPretty)
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
+import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Data.Yaml.Pretty (defConfig, encodePretty)
 import           Lens.Micro (Traversal', _Right)
 import qualified Pact.ApiReq as P
@@ -188,9 +188,7 @@ meta (Account t) c = P.PublicMeta c' t gl gp (P.TTLSeconds 3600) <$> txTime
     gp = P.GasPrice 0.00000001
 
 txTime :: IO P.TxCreationTime
-txTime = do
-  Time (TimeSpan (Micros m)) <- getCurrentTimeIntegral
-  pure . fromIntegral $ m `div` 1000000
+txTime = fromInteger . round <$> getPOSIXTime
 
 -- | Confirmation that a `Transaction` has been accepted by the network. This
 -- can be used again as input to other calls to inspect the final results of
