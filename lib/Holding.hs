@@ -1,6 +1,5 @@
 {-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE DerivingStrategies  #-}
-{-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE TypeOperators       #-}
@@ -145,7 +144,7 @@ keysFromFile = fmap (fmap hidden) . decodeFileStrict'
 --------------------------------------------------------------------------------
 -- Pact Code
 
-data PactCode = PactCode { rawOf :: !Text }
+newtype PactCode = PactCode { rawOf :: Text }
 
 instance Show PactCode where
   show = T.unpack . prettyCode
@@ -199,7 +198,7 @@ prettyReceipt :: Receipt -> Text
 prettyReceipt (Receipt r) = P.requestKeyToB16Text r
 
 -- | The final result/outcome of some sent `Transaction`.
-newtype TXResult = TXResult { txr :: (P.CommandResult P.Hash) }
+newtype TXResult = TXResult { txr :: P.CommandResult P.Hash }
   deriving stock (Generic)
 
 -- | Attempt to pull a real `P.PactValue` from some returned `TXResult`.

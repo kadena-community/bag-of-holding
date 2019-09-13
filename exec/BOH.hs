@@ -85,11 +85,11 @@ env (Args v fp acc url) = runExceptT $ do
 --------------------------------------------------------------------------------
 -- Endpoint Calling
 
-call :: Env -> Endpoint -> ChainId -> PactCode -> IO TX
-call e ep cid c = do
+call :: Env -> REPL -> IO TX
+call e r@(REPL cid ep c) = do
   m  <- meta (accOf e) cid
   tx <- transaction c (keysOf e) m
-  TX cid ep c <$> runClientM (f tx) (clenvOf e)
+  TX r <$> runClientM (f tx) (clenvOf e)
   where
     f :: Transaction -> ClientM From
     f = case ep of
@@ -101,7 +101,7 @@ call e ep cid c = do
 
 type Listo = L.GenericList Name Seq TX
 
-data TX = TX ChainId Endpoint PactCode (Either ClientError From)
+data TX = TX REPL (Either ClientError From)
   deriving stock (Generic)
 
 data Wallet = Wallet
@@ -143,13 +143,12 @@ replForm = newForm
   ]
   where
     label :: Text -> Widget Name -> Widget Name
-    label t w = padBottom (Pad 1) $ (vLimit 1 $ hLimit 15 $ txt t <+> fill ' ') <+> w
+    label t w = padBottom (Pad 1) $ vLimit 1 (hLimit 15 $ txt t <+> fill ' ') <+> w
 
 main :: IO ()
-main = do
-  execParser opts >>= env >>= \case
-    Left _ -> pure () -- TODO Say something.
-    Right e -> void $ defaultMain (app e) initial
+main = execParser opts >>= env >>= \case
+  Left _ -> pure () -- TODO Say something.
+  Right e -> void $ defaultMain (app e) initial
   where
     initial :: Wallet
     initial = Wallet
@@ -222,7 +221,7 @@ draw e w = dispatch <> [ui]
         | otherwise = L.renderList (const txListItem) True $ txsOf w
 
     txListItem :: TX -> Widget Name
-    txListItem (TX cid ep pc eef) = vLimit 1 $ hBox
+    txListItem (TX (REPL cid ep pc) eef) = vLimit 1 $ hBox
       [ hLimit 1 $ txt icon
       , padLeft (Pad 2) . str $ printf "%02d" (chainIdInt cid :: Int)
       , padLeft (Pad 2) $ txt end
@@ -243,7 +242,7 @@ draw e w = dispatch <> [ui]
         contents :: Widget Name
         contents = case w ^? from of
           Nothing             -> txt "Select a Transaction."
-          Just (TX _ _ _ eef) -> case eef of
+          Just (TX _ eef) -> case eef of
             Left _      -> txt "This Transaction had an HTTP failure."
             Right (T t) -> txt . tencode $ txr t
             Right (R r) -> vBox [ txt $ prettyReceipt r
@@ -265,8 +264,7 @@ replEvent e w ev@(VtyEvent ve) = case ve of
   V.EvKey V.KEnter []
     | not (allFieldsValid $ replOf w) -> continue w
     | otherwise -> do
-        let fs = formState $ replOf w
-        t <- liftIO . call e (re fs) (rcid fs) $ rpc fs
+        t <- liftIO . call e . formState $ replOf w
         continue $ w & field @"focOf" %~ focusSetCurrent TXList
                      & field @"txsOf" %~ (L.listMoveTo 0 . L.listInsert 0 t)
 
@@ -295,10 +293,10 @@ mainEvent e w (VtyEvent ve) = case ve of
     where
       f :: IO (Maybe Wallet)
       f = runMaybeT $ do
-        TX cid _ _ eef <- hoistMaybe (w ^? from)
+        TX (REPL cid _ _) eef <- hoistMaybe (w ^? from)
         r <- hoistMaybe (eef ^? _Right . _Ctor @"R")
         t <- MaybeT . fmap (join . hush) $ runClientM (listen (verOf e) cid r) (clenvOf e)
-        pure (w & field @"txsOf" %~ (L.listModify (set (position @4) (Right $ T t))))
+        pure (w & field @"txsOf" %~ L.listModify (set (position @2) (Right $ T t)))
 
   -- Keyboard Navigation --
   ev -> do
