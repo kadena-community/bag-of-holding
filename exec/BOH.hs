@@ -105,17 +105,17 @@ data TX = TX ChainId Endpoint PactCode (Either ClientError From)
   deriving stock (Generic)
 
 data Wallet = Wallet
-  { txsOf  :: Listo
-  , logOf  :: Text
-  , focOf  :: FocusRing Name
-  , replOf :: Form REPL () Name }
+  { txsOf  :: !Listo
+  , logOf  :: !Text
+  , focOf  :: !(FocusRing Name)
+  , replOf :: !(Form REPL () Name) }
   deriving stock (Generic)
 
 data From = R Receipt | T TXResult deriving (Generic)
 
 data Endpoint = Local | Send deriving (Eq)
 
-data REPL = REPL { rcid :: ChainId, re :: Endpoint, rpc :: PactCode }
+data REPL = REPL { rcid :: !ChainId, re :: !Endpoint, rpc :: !PactCode }
   deriving stock (Generic)
 
 -- | Resource names.
