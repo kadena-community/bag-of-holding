@@ -274,8 +274,8 @@ event :: Env -> Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
 event e w be = case focusGetCurrent $ focOf w of
   Nothing       -> continue w
   Just TXList   -> mainEvent e w be
-  Just Help     -> helpEvent w be
-  Just Balances -> balanceEvent w be
+  Just Help     -> simplePage w be
+  Just Balances -> simplePage w be
   Just _        -> replEvent e w be
 
 replEvent :: Env -> Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
@@ -295,14 +295,9 @@ replEvent e w ev@(VtyEvent ve) = case ve of
   _ -> handleFormEventL (field @"replOf") w ev >>= continue
 replEvent _ w _ = continue w
 
--- TODO Consolidate this and the function below into a func called `move`.
-helpEvent :: Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
-helpEvent w be = case be of
-  VtyEvent (V.EvKey _ []) -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
-  _ -> continue w
-
-balanceEvent :: Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
-balanceEvent w be = case be of
+-- | Display some simple page until any key is pressed.
+simplePage :: Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
+simplePage w be = case be of
   VtyEvent (V.EvKey _ []) -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
   _ -> continue w
 
