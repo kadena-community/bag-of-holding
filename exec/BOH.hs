@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds          #-}
 {-# LANGUAGE DeriveGeneric      #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts   #-}
 {-# LANGUAGE LambdaCase         #-}
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE RankNTypes         #-}
@@ -22,6 +23,7 @@ import           Chainweb.Version
 import           Control.Error.Util (hoistMaybe, hush, (!?))
 import           Control.Monad.Trans.Except (runExceptT)
 import           Control.Monad.Trans.Maybe (MaybeT(..), runMaybeT)
+import           Data.Bitraversable (bitraverse)
 import           Data.Generics.Product.Fields (field)
 import           Data.Generics.Product.Positions (position)
 import           Data.Generics.Sum.Constructors (_Ctor)
@@ -29,11 +31,14 @@ import           Data.Generics.Wrapped (_Unwrapped)
 import qualified Graphics.Vty as V
 import           Holding
 import           Lens.Micro
+import           Lens.Micro.Extras (preview)
 import           Network.HTTP.Client (newManager)
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Options.Applicative hiding (footer, header, str)
+import qualified Pact.Types.Command as P
 import           RIO hiding (local, on)
 import qualified RIO.HashSet as HS
+import qualified RIO.List as L
 import           RIO.Partial (fromJust)
 import qualified RIO.Seq as Seq
 import qualified RIO.Text as T
@@ -109,7 +114,8 @@ data Wallet = Wallet
   { txsOf  :: !Listo
   , logOf  :: !Text
   , focOf  :: !(FocusRing Name)
-  , replOf :: !(Form REPL () Name) }
+  , replOf :: !(Form REPL () Name)
+  , balsOf :: [(ChainId, Maybe Double)] }
   deriving stock (Generic)
 
 data From = R Receipt | T TXResult deriving (Generic)
@@ -120,7 +126,7 @@ data REPL = REPL { rcid :: !ChainId, re :: !Endpoint, rpc :: !PactCode }
   deriving stock (Generic)
 
 -- | Resource names.
-data Name = TXList | ReplChain | ReplLocal | ReplSend | ReplCode | Help
+data Name = TXList | ReplChain | ReplLocal | ReplSend | ReplCode | Help | Balances
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 header :: Widget a
@@ -129,7 +135,7 @@ header = vLimit 1 . C.center $ txt " The Bag of Holding "
 footer :: Text -> Widget a
 footer t = vLimit 1 $ txt (T.take 10 t) <+> C.hCenter legend
   where
-    legend = txt "[T]ransaction - [H]elp - [Q]uit"
+    legend = txt "[T]ransaction - [B]alances - [H]elp - [Q]uit"
 
 replForm :: Env -> REPL -> Form REPL e Name
 replForm e = newForm
@@ -161,7 +167,7 @@ main = execParser opts >>= env >>= \case
       (L.list TXList mempty 1)
       ""
       (focusRing [minBound ..])
-      (replForm e . REPL (unsafeChainId 0) Local . fromJust $ code "(+ 1 1)")
+      (replForm e . REPL (unsafeChainId 0) Local . fromJust $ code "(+ 1 1)") []
 
     opts :: ParserInfo Args
     opts = info (pArgs <**> helper)
@@ -192,6 +198,7 @@ draw e w = dispatch <> [ui]
     dispatch = case focusGetCurrent $ focOf w of
       Just ReplCode -> [repl]
       Just Help     -> [he1p]
+      Just Balances -> [balances]
       _             -> []
 
     repl :: Widget Name
@@ -202,21 +209,30 @@ draw e w = dispatch <> [ui]
     -- TODO Look into text wrapping.
     he1p :: Widget Name
     he1p = C.centerLayer . vLimit 16 . hLimitPercent 50 . B.borderWithLabel (txt " Help ")
-           $ vBox
-           [ C.hCenter . padBottom (Pad 1) $ txt "The Bag of Holding - A Chainweb Wallet"
-           , txt "Author:   Colin Woodbury"
-           , txt "Issues:   " <+> hyperlink url (txt url)
-           , txt $ "Chainweb: " <> toText (verOf e)
-           , txt $ "Account:  " <> (accOf e ^. _Unwrapped)
-           , padTop (Pad 1) $ txt "A note on endpoints:"
-           , txt "LOCAL: Transaction is 'free', but results aren't"
-           , txt "       saved to the blockchain. Returns instantly."
-           , txt "SEND:  Transaction is mined into a block."
-           , txt "       Costs gas and takes time for the results."
-           , padTop (Pad 1) $ C.hCenter (txt "Press any key.")
-           ]
+      $ vBox
+      [ C.hCenter . padBottom (Pad 1) $ txt "The Bag of Holding - A Chainweb Wallet"
+      , txt "Author:   Colin Woodbury"
+      , txt "Issues:   " <+> hyperlink url (txt url)
+      , txt $ "Chainweb: " <> toText (verOf e)
+      , txt $ "Account:  " <> (accOf e ^. _Unwrapped)
+      , padTop (Pad 1) $ txt "A note on endpoints:"
+      , txt "LOCAL: Transaction is 'free', but results aren't"
+      , txt "       saved to the blockchain. Returns instantly."
+      , txt "SEND:  Transaction is mined into a block."
+      , txt "       Costs gas and takes time for the results."
+      , padTop (Pad 1) $ C.hCenter (txt "Press any key.") ]
       where
         url = "gitlab.com/fosskers/bag-of-holding"
+
+    balances :: Widget Name
+    balances =
+      C.centerLayer . vLimit 14 . hLimitPercent 50 . B.borderWithLabel (txt " Balances ")
+      $ vBox (map f $ balsOf w) <=> padTop (Pad 1) (C.hCenter $ txt "Press any key.")
+      where
+        f :: (ChainId, Maybe Double) -> Widget Name
+        f (cid, md) = hBox
+          [ txt "Chain ", txt (toText cid), txt " => "
+          , str $ maybe "Balance check failed." show md ]
 
     -- TODO Consider `round` border style.
     left :: Widget Name
@@ -256,10 +272,11 @@ draw e w = dispatch <> [ui]
 
 event :: Env -> Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
 event e w be = case focusGetCurrent $ focOf w of
-  Nothing     -> continue w
-  Just TXList -> mainEvent e w be
-  Just Help   -> helpEvent w be
-  Just _      -> replEvent e w be
+  Nothing       -> continue w
+  Just TXList   -> mainEvent e w be
+  Just Help     -> helpEvent w be
+  Just Balances -> balanceEvent w be
+  Just _        -> replEvent e w be
 
 replEvent :: Env -> Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
 replEvent e w ev@(VtyEvent ve) = case ve of
@@ -278,8 +295,14 @@ replEvent e w ev@(VtyEvent ve) = case ve of
   _ -> handleFormEventL (field @"replOf") w ev >>= continue
 replEvent _ w _ = continue w
 
+-- TODO Consolidate this and the function below into a func called `move`.
 helpEvent :: Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
 helpEvent w be = case be of
+  VtyEvent (V.EvKey _ []) -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
+  _ -> continue w
+
+balanceEvent :: Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
+balanceEvent w be = case be of
   VtyEvent (V.EvKey _ []) -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
   _ -> continue w
 
@@ -290,6 +313,17 @@ mainEvent e w (VtyEvent ve) = case ve of
 
   -- Transaction Form --
   V.EvKey (V.KChar 't') [] -> continue (w & field @"focOf" %~ focusSetCurrent ReplCode)
+
+  -- Balance Check --
+  V.EvKey (V.KChar 'b') [] -> do
+    txs <- liftIO $ mapConcurrently (bitraverse pure (traverse (call e))) rs
+    continue $ w & field @"focOf"  %~ focusSetCurrent Balances
+                 & field @"balsOf" .~ map (second ds) txs
+    where
+      cs = L.sort . toList . chainIds $ verOf e
+      cd = balance $ accOf e
+      rs = map (\cid -> (cid, REPL cid Local <$> cd)) cs
+      ds = preview (_Just . position @2 . _Right . _Ctor @"T" . pdub)
 
   -- Help Window --
   V.EvKey (V.KChar 'h') [] -> continue (w & field @"focOf" %~ focusSetCurrent Help)
@@ -318,3 +352,6 @@ handleFormEventL :: Eq n => Lens' s (Form x e n) -> s -> BrickEvent n e -> Event
 handleFormEventL l s ev = do
   f' <- handleFormEvent ev (s ^. l)
   pure (s & l .~ f')
+
+pdub :: SimpleFold TXResult Double
+pdub = _Unwrapped . P.crResult . _Unwrapped . _Right . _Ctor @"PLiteral" . _Ctor @"LDecimal" . to realToFrac
