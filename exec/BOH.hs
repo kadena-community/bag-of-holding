@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds          #-}
+{-# LANGUAGE DeriveAnyClass     #-}
 {-# LANGUAGE DeriveGeneric      #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts   #-}
@@ -6,6 +7,7 @@
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE RankNTypes         #-}
 {-# LANGUAGE TypeApplications   #-}
+{-# LANGUAGE TypeOperators      #-}
 
 module Main ( main ) where
 
@@ -23,6 +25,7 @@ import           Chainweb.Version
 import           Control.Error.Util (hoistMaybe, hush, (!?))
 import           Control.Monad.Trans.Except (runExceptT)
 import           Control.Monad.Trans.Maybe (MaybeT(..), runMaybeT)
+import           Data.Aeson
 import           Data.Bitraversable (bitraverse)
 import           Data.Generics.Product.Fields (field)
 import           Data.Generics.Product.Positions (position)
@@ -34,14 +37,18 @@ import           Lens.Micro
 import           Lens.Micro.Extras (preview)
 import           Network.HTTP.Client (newManager)
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
+import qualified Network.Wai.Handler.Warp as W
 import           Options.Applicative hiding (footer, header, str)
+import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
-import           RIO hiding (local, on)
+import qualified Pact.Types.Runtime as P
+import           RIO hiding (Handler, local, on)
 import qualified RIO.HashSet as HS
 import qualified RIO.List as L
 import           RIO.Partial (fromJust)
 import qualified RIO.Seq as Seq
 import qualified RIO.Text as T
+import           Servant
 import           Servant.Client
 import           Text.Printf (printf)
 
@@ -160,7 +167,7 @@ replForm e = newForm
 main :: IO ()
 main = execParser opts >>= env >>= \case
   Left _ -> pure () -- TODO Say something.
-  Right e -> void $ defaultMain (app e) (initial e)
+  Right e -> race_ (W.run 9467 signApp) (void $ defaultMain (app e) (initial e))
   where
     initial :: Env -> Wallet
     initial e = Wallet
@@ -318,7 +325,7 @@ mainEvent e w (VtyEvent ve) = case ve of
       cs = L.sort . toList . chainIds $ verOf e
       cd = balance $ accOf e
       rs = map (\cid -> (cid, REPL cid Local <$> cd)) cs
-      ds = preview (_Just . position @2 . _Right . _Ctor @"T" . pdub)
+      ds = preview (_Just . position @2 . _Right . _Ctor @"T" . pactDouble)
 
   -- Help Window --
   V.EvKey (V.KChar 'h') [] -> continue (w & field @"focOf" %~ focusSetCurrent Help)
@@ -348,5 +355,33 @@ handleFormEventL l s ev = do
   f' <- handleFormEvent ev (s ^. l)
   pure (s & l .~ f')
 
-pdub :: SimpleFold TXResult Double
-pdub = _Unwrapped . P.crResult . _Unwrapped . _Right . _Ctor @"PLiteral" . _Ctor @"LDecimal" . to realToFrac
+--------------------------------------------------------------------------------
+-- Signing Server
+
+type API = "v1" :> "sign" :> ReqBody '[JSON] SigningRequest :> Post '[JSON] SigningResponse
+
+data SigningRequest = SigningRequest
+  { _signingRequest_code     :: Text
+  , _signingRequest_data     :: Maybe Object
+  , _signingRequest_nonce    :: Maybe Text
+  , _signingRequest_chainId  :: Maybe Text
+  , _signingRequest_gasLimit :: Maybe P.GasLimit
+  , _signingRequest_ttl      :: Maybe P.TTLSeconds
+  , _signingRequest_sender   :: Maybe Text }
+  deriving stock (Generic)
+  deriving anyclass (FromJSON)
+
+data SigningResponse = SigningResponse
+  { _signingResponse_body    :: P.Command Text
+  , _signingResponse_chainId :: Text }
+  deriving stock (Generic)
+  deriving anyclass (ToJSON)
+
+server :: Server API
+server = sign
+  where
+    sign :: SigningRequest -> Handler SigningResponse
+    sign _ = throwM $ err503 { errBody = "NERD!" }
+
+signApp :: Application
+signApp = serve (Proxy @API) server

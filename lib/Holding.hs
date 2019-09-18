@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE DerivingStrategies  #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -23,6 +24,7 @@ module Holding
   , prettyReceipt
   , TXResult(..)
   , pactValue
+  , pactDouble
     -- * Calling Pact
     -- | It's assumed that the Pact instance in question lives on a running
     -- Chainweb network.
@@ -49,13 +51,14 @@ import           Chainweb.Version
 import           Control.Error.Util (hush)
 import           Data.Aeson
 import           Data.Aeson.Types (prependFailure, typeMismatch)
+import           Data.Generics.Sum.Constructors (_Ctor)
 import           Data.Generics.Wrapped (_Unwrapped)
 import           Data.Singletons
 import           Data.Text.Prettyprint.Doc (defaultLayoutOptions, layoutPretty)
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Data.Yaml.Pretty (defConfig, encodePretty)
-import           Lens.Micro (Traversal', _Right)
+import           Lens.Micro (SimpleFold, Traversal', _Right)
 import qualified Pact.ApiReq as P
 import qualified Pact.Compile as P
 import qualified Pact.Parse as P
@@ -204,6 +207,9 @@ newtype TXResult = TXResult { txr :: P.CommandResult P.Hash }
 -- | Attempt to pull a real `P.PactValue` from some returned `TXResult`.
 pactValue :: Traversal' TXResult P.PactValue
 pactValue = _Unwrapped . P.crResult . _Unwrapped . _Right
+
+pactDouble :: SimpleFold TXResult Double
+pactDouble = pactValue . _Ctor @"PLiteral" . _Ctor @"LDecimal" . to realToFrac
 
 --------------------------------------------------------------------------------
 -- Endpoint Calls

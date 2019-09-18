@@ -25,6 +25,7 @@ common commons
     -Wincomplete-uni-patterns -Widentities -funclutter-valid-hole-fits
 
   build-depends:
+    , aeson           ^>=1.4
     , base            >=4.7  && <5
     , chainweb        ^>=0.2
     , errors          ^>=2.3
@@ -39,7 +40,6 @@ library
   hs-source-dirs:  lib
   exposed-modules: Holding
   build-depends:
-    , aeson          ^>=1.4
     , prettyprinter  ^>=1.2
     , servant        ^>=0.16
     , time           ^>=1.8
@@ -56,8 +56,11 @@ executable boh
     , http-client           ^>=0.6
     , http-client-tls       ^>=0.3
     , optparse-applicative  ^>=0.14
+    , servant               ^>=0.16
+    , servant-server        ^>=0.16
     , transformers          ^>=0.5
     , vty                   >=5.25
+    , warp                  >=3.2
 
 -- test-suite boh-tests
 --   import:         commons
