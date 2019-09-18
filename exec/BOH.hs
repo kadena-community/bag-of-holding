@@ -33,6 +33,7 @@ import           Network.HTTP.Client (newManager)
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Options.Applicative hiding (footer, header, str)
 import           RIO hiding (local, on)
+import qualified RIO.HashSet as HS
 import           RIO.Partial (fromJust)
 import qualified RIO.Seq as Seq
 import qualified RIO.Text as T
@@ -130,12 +131,10 @@ footer t = vLimit 1 $ txt (T.take 10 t) <+> C.hCenter legend
   where
     legend = txt "[T]ransaction - [H]elp - [Q]uit"
 
--- TODO Make it validate the `ChainId` against known values from the current
--- `ChainwebVersion`.
-replForm :: REPL -> Form REPL e Name
-replForm = newForm
+replForm :: Env -> REPL -> Form REPL e Name
+replForm e = newForm
   [ label "Chain" @@= editField (field @"rcid") ReplChain Nothing
-    toText (chainIdFromText . T.unlines) (txt . T.unlines) id
+    toText goodChain (txt . T.unlines) id
   , label "Endpoint" @@= radioField (field @"re")
     [(Local, ReplLocal, "Local"), (Send, ReplSend, "Send")]
   , label "Pact Code" @@= editField (field @"rpc") ReplCode Nothing
@@ -145,17 +144,24 @@ replForm = newForm
     label :: Text -> Widget Name -> Widget Name
     label t w = padBottom (Pad 1) $ vLimit 1 (hLimit 15 $ txt t <+> fill ' ') <+> w
 
+    -- | Requires that the specified `ChainId` be a valid member of the Chain
+    -- Graph of the current `ChainwebVersion`.
+    goodChain :: [Text] -> Maybe ChainId
+    goodChain ts = do
+      cid <- chainIdFromText $ T.unlines ts
+      bool Nothing (Just cid) . HS.member cid . chainIds $ verOf e
+
 main :: IO ()
 main = execParser opts >>= env >>= \case
   Left _ -> pure () -- TODO Say something.
-  Right e -> void $ defaultMain (app e) initial
+  Right e -> void $ defaultMain (app e) (initial e)
   where
-    initial :: Wallet
-    initial = Wallet
+    initial :: Env -> Wallet
+    initial e = Wallet
       (L.list TXList mempty 1)
       ""
       (focusRing [minBound ..])
-      (replForm . REPL (unsafeChainId 0) Local . fromJust $ code "(+ 1 1)")
+      (replForm e . REPL (unsafeChainId 0) Local . fromJust $ code "(+ 1 1)")
 
     opts :: ParserInfo Args
     opts = info (pArgs <**> helper)
