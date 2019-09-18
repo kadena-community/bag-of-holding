@@ -13,6 +13,7 @@ module Main ( main ) where
 
 import           Brick
 import qualified Brick.AttrMap as A
+import           Brick.BChan
 import           Brick.Focus
 import           Brick.Forms
 import qualified Brick.Widgets.Border as B
@@ -84,7 +85,9 @@ data Env = Env
   { verOf   :: !ChainwebVersion
   , clenvOf :: !ClientEnv
   , keysOf  :: !Keys
-  , accOf   :: !Account }
+  , accOf   :: !Account
+  , chanOf  :: !(BChan SignReq)
+  , respOf  :: !(TMVar (Maybe Signed)) }
   deriving stock (Generic)
 
 -- | From some CLI `Args`, form the immutable runtime environment.
@@ -93,7 +96,9 @@ env :: Args -> IO (Either Text Env)
 env (Args v fp acc url) = runExceptT $ do
   ks <- keysFromFile fp !? ("Could not decode key file: " <> T.pack fp)
   mn <- lift $ newManager tlsManagerSettings
-  pure $ Env v (ClientEnv mn url Nothing) ks acc
+  bc <- lift $ newBChan 1
+  ts <- newEmptyTMVarIO
+  pure $ Env v (ClientEnv mn url Nothing) ks acc bc ts
 
 --------------------------------------------------------------------------------
 -- Endpoint Calling
@@ -121,7 +126,7 @@ data Wallet = Wallet
   { txsOf  :: !Listo
   , logOf  :: !Text
   , focOf  :: !(FocusRing Name)
-  , replOf :: !(Form REPL () Name)
+  , replOf :: !(Form REPL SignReq Name)
   , balsOf :: [(ChainId, Maybe Double)] }
   deriving stock (Generic)
 
@@ -167,8 +172,14 @@ replForm e = newForm
 main :: IO ()
 main = execParser opts >>= env >>= \case
   Left _ -> pure () -- TODO Say something.
-  Right e -> race_ (W.run 9467 signApp) (void $ defaultMain (app e) (initial e))
+  Right e -> do
+    initialVty <- buildVty
+    race_ (W.run 9467 $ signApp (chanOf e) (respOf e))
+          (void $ customMain initialVty buildVty (Just $ chanOf e) (app e) (initial e))
   where
+    buildVty :: IO V.Vty
+    buildVty = V.mkVty V.defaultConfig
+
     initial :: Env -> Wallet
     initial e = Wallet
       (L.list TXList mempty 1)
@@ -180,7 +191,7 @@ main = execParser opts >>= env >>= \case
     opts = info (pArgs <**> helper)
         (fullDesc <> progDesc "The Bag of Holding: A Chainweb Wallet")
 
-    app :: Env -> App Wallet () Name
+    app :: Env -> App Wallet SignReq Name
     app e = App { appDraw = draw e
                 , appChooseCursor = focusRingCursor focOf
                 , appHandleEvent = event e
@@ -277,7 +288,7 @@ draw e w = dispatch <> [ui]
             Right (R r) -> vBox [ txt $ prettyReceipt r
                                 , padTop (Pad 1) $ txt "Press [Enter] to query the result." ]
 
-event :: Env -> Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
+event :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
 event e w be = case focusGetCurrent $ focOf w of
   Nothing       -> continue w
   Just TXList   -> mainEvent e w be
@@ -285,7 +296,7 @@ event e w be = case focusGetCurrent $ focOf w of
   Just Balances -> simplePage w be
   Just _        -> replEvent e w be
 
-replEvent :: Env -> Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
+replEvent :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
 replEvent e w ev@(VtyEvent ve) = case ve of
   -- Close Popups --
   V.EvKey V.KEsc [] -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
@@ -303,12 +314,12 @@ replEvent e w ev@(VtyEvent ve) = case ve of
 replEvent _ w _ = continue w
 
 -- | Display some simple page until any key is pressed.
-simplePage :: Wallet -> BrickEvent Name () -> EventM Name (Next Wallet)
+simplePage :: Wallet -> BrickEvent Name e -> EventM Name (Next Wallet)
 simplePage w be = case be of
   VtyEvent (V.EvKey _ []) -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
   _ -> continue w
 
-mainEvent :: Env -> Wallet -> BrickEvent Name e -> EventM Name (Next Wallet)
+mainEvent :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
 mainEvent e w (VtyEvent ve) = case ve of
   -- Quit --
   V.EvKey (V.KChar 'q') [] -> halt w
@@ -358,9 +369,9 @@ handleFormEventL l s ev = do
 --------------------------------------------------------------------------------
 -- Signing Server
 
-type API = "v1" :> "sign" :> ReqBody '[JSON] SigningRequest :> Post '[JSON] SigningResponse
+type API = "v1" :> "sign" :> ReqBody '[JSON] SignReq :> Post '[JSON] Signed
 
-data SigningRequest = SigningRequest
+data SignReq = SignReq
   { _signingRequest_code     :: Text
   , _signingRequest_data     :: Maybe Object
   , _signingRequest_nonce    :: Maybe Text
@@ -371,17 +382,21 @@ data SigningRequest = SigningRequest
   deriving stock (Generic)
   deriving anyclass (FromJSON)
 
-data SigningResponse = SigningResponse
+data Signed = Signed
   { _signingResponse_body    :: P.Command Text
   , _signingResponse_chainId :: Text }
   deriving stock (Generic)
   deriving anyclass (ToJSON)
 
-server :: Server API
-server = sign
+server :: BChan SignReq -> TMVar (Maybe Signed) -> Server API
+server bc ts = sign
   where
-    sign :: SigningRequest -> Handler SigningResponse
-    sign _ = throwM $ err503 { errBody = "NERD!" }
+    sign :: SignReq -> Handler Signed
+    sign sr = do
+      liftIO $ writeBChan bc sr
+      atomically (takeTMVar ts) >>= \case
+        Nothing     -> throwM $ err401 { errBody = "Signature request rejected." }
+        Just signed -> pure signed
 
-signApp :: Application
-signApp = serve (Proxy @API) server
+signApp :: BChan SignReq -> TMVar (Maybe Signed) -> Application
+signApp bc ts = serve (Proxy @API) $ server bc ts
