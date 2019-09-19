@@ -60,6 +60,7 @@ executable boh
     , servant-server        ^>=0.16
     , transformers          ^>=0.5
     , vty                   >=5.25
+    , wai-cors              >=0.2
     , warp                  >=3.2
 
 -- test-suite boh-tests

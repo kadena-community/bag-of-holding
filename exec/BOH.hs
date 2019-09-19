@@ -26,7 +26,8 @@ import           Chainweb.Version
 import           Control.Error.Util (hoistMaybe, hush, (!?))
 import           Control.Monad.Trans.Except (runExceptT)
 import           Control.Monad.Trans.Maybe (MaybeT(..), runMaybeT)
-import           Data.Aeson
+import           Data.Aeson hiding (Options)
+import           Data.Aeson.Types (prependFailure, typeMismatch)
 import           Data.Bitraversable (bitraverse)
 import           Data.Generics.Product.Fields (field)
 import           Data.Generics.Product.Positions (position)
@@ -39,8 +40,8 @@ import           Lens.Micro.Extras (preview)
 import           Network.HTTP.Client (newManager)
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import qualified Network.Wai.Handler.Warp as W
+import           Network.Wai.Middleware.Cors
 import           Options.Applicative hiding (footer, header, str)
-import qualified Pact.Types.ChainMeta as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Runtime as P
 import           RIO hiding (Handler, local, on)
@@ -127,7 +128,8 @@ data Wallet = Wallet
   , logOf  :: !Text
   , focOf  :: !(FocusRing Name)
   , replOf :: !(Form REPL SignReq Name)
-  , balsOf :: [(ChainId, Maybe Double)] }
+  , balsOf :: [(ChainId, Maybe Double)]
+  , reqOf  :: Maybe SignReq }
   deriving stock (Generic)
 
 data From = R Receipt | T TXResult deriving (Generic)
@@ -138,7 +140,7 @@ data REPL = REPL { rcid :: !ChainId, re :: !Endpoint, rpc :: !PactCode }
   deriving stock (Generic)
 
 -- | Resource names.
-data Name = TXList | ReplChain | ReplLocal | ReplSend | ReplCode | Help | Balances
+data Name = TXList | ReplChain | ReplLocal | ReplSend | ReplCode | Help | Balances | Sign
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 header :: Widget a
@@ -186,6 +188,7 @@ main = execParser opts >>= env >>= \case
       ""
       (focusRing [minBound ..])
       (replForm e . REPL (unsafeChainId 0) Local . fromJust $ code "(+ 1 1)") []
+      Nothing
 
     opts :: ParserInfo Args
     opts = info (pArgs <**> helper)
@@ -217,6 +220,7 @@ draw e w = dispatch <> [ui]
       Just ReplCode -> [repl]
       Just Help     -> [he1p]
       Just Balances -> [balances]
+      Just Sign     -> [signing]
       _             -> []
 
     repl :: Widget Name
@@ -251,6 +255,10 @@ draw e w = dispatch <> [ui]
         f (cid, md) = hBox
           [ txt "Chain ", txt (toText cid), txt " => "
           , str $ maybe "Balance check failed." show md ]
+
+    signing :: Widget Name
+    signing = C.centerLayer . vLimit 3 . hLimitPercent 50
+      . B.borderWithLabel (txt " Transaction Signing ") $ txt "SIGN IT BABY"
 
     -- TODO Consider `round` border style.
     left :: Widget Name
@@ -294,11 +302,12 @@ event e w be = case focusGetCurrent $ focOf w of
   Just TXList   -> mainEvent e w be
   Just Help     -> simplePage w be
   Just Balances -> simplePage w be
+  Just Sign     -> signEvent e w be
   Just _        -> replEvent e w be
 
 replEvent :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
 replEvent e w ev@(VtyEvent ve) = case ve of
-  -- Close Popups --
+  -- Close Popup --
   V.EvKey V.KEsc [] -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
 
   -- Submission --
@@ -312,6 +321,21 @@ replEvent e w ev@(VtyEvent ve) = case ve of
   -- Code Input --
   _ -> handleFormEventL (field @"replOf") w ev >>= continue
 replEvent _ w _ = continue w
+
+signEvent :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
+signEvent e w (VtyEvent ve) = case ve of
+  -- Close Popup --
+  V.EvKey V.KEsc [] -> do
+    liftIO . atomically $ putTMVar (respOf e) Nothing
+    continue (w & field @"focOf" %~ focusSetCurrent TXList)
+
+  -- Sign the Transaction --
+  V.EvKey V.KEnter [] -> do
+    liftIO . atomically $ putTMVar (respOf e) Nothing -- TODO Accept!
+    continue (w & field @"focOf" %~ focusSetCurrent TXList)
+
+  _ -> continue w
+signEvent _ w _ = continue w
 
 -- | Display some simple page until any key is pressed.
 simplePage :: Wallet -> BrickEvent Name e -> EventM Name (Next Wallet)
@@ -355,6 +379,8 @@ mainEvent e w (VtyEvent ve) = case ve of
   ev -> do
     l' <- L.handleListEventVi L.handleListEvent ev (txsOf w)
     continue (w & field @"txsOf" .~ l')
+mainEvent _ w (AppEvent sr) = continue $ w & field @"reqOf" ?~ sr
+                                           & field @"focOf" %~ focusSetCurrent Sign
 mainEvent _ w _ = continue w
 
 from :: SimpleFold Wallet TX
@@ -369,7 +395,11 @@ handleFormEventL l s ev = do
 --------------------------------------------------------------------------------
 -- Signing Server
 
+-- type Options = Verb 'OPTIONS 200
+
 type API = "v1" :> "sign" :> ReqBody '[JSON] SignReq :> Post '[JSON] Signed
+  -- :<|> "v1" :> "sign" :> ReqBody '[JSON] SignReq :> Options '[JSON] Signed
+  :<|> "ping" :> Get '[JSON] Text
 
 data SignReq = SignReq
   { _signingRequest_code     :: Text
@@ -377,10 +407,18 @@ data SignReq = SignReq
   , _signingRequest_nonce    :: Maybe Text
   , _signingRequest_chainId  :: Maybe Text
   , _signingRequest_gasLimit :: Maybe P.GasLimit
-  , _signingRequest_ttl      :: Maybe P.TTLSeconds
   , _signingRequest_sender   :: Maybe Text }
-  deriving stock (Generic)
-  deriving anyclass (FromJSON)
+
+instance FromJSON SignReq where
+  parseJSON (Object v) = SignReq
+    <$> v .:  "code"
+    <*> v .:? "data"
+    <*> v .:? "nonce"
+    <*> v .:? "chainId"
+    <*> v .:? "gasLimit"
+    <*> v .:? "sender"
+  parseJSON invalid =
+    prependFailure "parsing SignReq failed, " $ typeMismatch "Object" invalid
 
 data Signed = Signed
   { _signingResponse_body    :: P.Command Text
@@ -389,14 +427,17 @@ data Signed = Signed
   deriving anyclass (ToJSON)
 
 server :: BChan SignReq -> TMVar (Maybe Signed) -> Server API
-server bc ts = sign
+server bc ts = sign :<|> pure "pong"
   where
     sign :: SignReq -> Handler Signed
     sign sr = do
       liftIO $ writeBChan bc sr
       atomically (takeTMVar ts) >>= \case
-        Nothing     -> throwM $ err401 { errBody = "Signature request rejected." }
+        Nothing     -> throwM err401
         Just signed -> pure signed
 
 signApp :: BChan SignReq -> TMVar (Maybe Signed) -> Application
-signApp bc ts = serve (Proxy @API) $ server bc ts
+signApp bc ts = cors laxCors . serve (Proxy @API) $ server bc ts
+  where
+    laxCors :: a -> Maybe CorsResourcePolicy
+    laxCors _ = Just $ simpleCorsResourcePolicy { corsRequestHeaders = simpleHeaders }
