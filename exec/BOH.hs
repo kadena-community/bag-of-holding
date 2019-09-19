@@ -330,6 +330,9 @@ replEvent e w ev@(VtyEvent ve) = case ve of
 
   -- Code Input --
   _ -> handleFormEventL (field @"replOf") w ev >>= continue
+
+replEvent _ w (AppEvent sr) = continue $ w & field @"reqOf" ?~ sr
+                                           & field @"focOf" %~ focusSetCurrent Sign
 replEvent _ w _ = continue w
 
 signEvent :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
@@ -359,9 +362,11 @@ signEvent e w (VtyEvent ve) = case ve of
 signEvent _ w _ = continue w
 
 -- | Display some simple page until any key is pressed.
-simplePage :: Wallet -> BrickEvent Name e -> EventM Name (Next Wallet)
+simplePage :: Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
 simplePage w be = case be of
   VtyEvent (V.EvKey _ []) -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
+  AppEvent sr -> continue $ w & field @"reqOf" ?~ sr
+                              & field @"focOf" %~ focusSetCurrent Sign
   _ -> continue w
 
 mainEvent :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
