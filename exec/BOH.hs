@@ -257,8 +257,18 @@ draw e w = dispatch <> [ui]
           , str $ maybe "Balance check failed." show md ]
 
     signing :: Widget Name
-    signing = C.centerLayer . vLimit 3 . hLimitPercent 50
-      . B.borderWithLabel (txt " Transaction Signing ") $ txt "SIGN IT BABY"
+    signing = C.centerLayer . vLimit 12 . hLimitPercent 50
+      . B.borderWithLabel (txt " Transaction Signing ") $ vBox $
+      maybe [] reqContents (reqOf w) <>
+      [ C.hCenter . padTop (Pad 1) $ txt "[ESC] [Enter]" ]
+      where
+        reqContents :: SignReq -> [Widget Name]
+        reqContents sr =
+          [ txt $ _signReq_code sr
+          , padTop (Pad 1) . txt $ "Chain:  " <> fromMaybe "Unknown" (_signReq_chainId sr)
+          , txt $ "Sender: " <> fromMaybe "Unknown" (_signReq_sender sr)
+          , txt $ "Gas:    " <> maybe "Unknown" tshow (_signReq_gasLimit sr)
+          , C.hCenter . padTop (Pad 1) $ txt "Sign this Transaction?" ]
 
     -- TODO Consider `round` border style.
     left :: Widget Name
@@ -395,19 +405,15 @@ handleFormEventL l s ev = do
 --------------------------------------------------------------------------------
 -- Signing Server
 
--- type Options = Verb 'OPTIONS 200
-
 type API = "v1" :> "sign" :> ReqBody '[JSON] SignReq :> Post '[JSON] Signed
-  -- :<|> "v1" :> "sign" :> ReqBody '[JSON] SignReq :> Options '[JSON] Signed
-  :<|> "ping" :> Get '[JSON] Text
 
 data SignReq = SignReq
-  { _signingRequest_code     :: Text
-  , _signingRequest_data     :: Maybe Object
-  , _signingRequest_nonce    :: Maybe Text
-  , _signingRequest_chainId  :: Maybe Text
-  , _signingRequest_gasLimit :: Maybe P.GasLimit
-  , _signingRequest_sender   :: Maybe Text }
+  { _signReq_code     :: Text
+  , _signReq_data     :: Maybe Object
+  , _signReq_nonce    :: Maybe Text
+  , _signReq_chainId  :: Maybe Text
+  , _signReq_gasLimit :: Maybe P.GasLimit
+  , _signReq_sender   :: Maybe Text }
 
 instance FromJSON SignReq where
   parseJSON (Object v) = SignReq
@@ -427,7 +433,7 @@ data Signed = Signed
   deriving anyclass (ToJSON)
 
 server :: BChan SignReq -> TMVar (Maybe Signed) -> Server API
-server bc ts = sign :<|> pure "pong"
+server bc ts = sign
   where
     sign :: SignReq -> Handler Signed
     sign sr = do
