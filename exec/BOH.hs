@@ -21,7 +21,7 @@ import qualified Brick.Widgets.Center as C
 import qualified Brick.Widgets.Edit as E
 import qualified Brick.Widgets.List as L
 import           Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
-import           Chainweb.Utils (textOption, toText)
+import           Chainweb.Utils (fromText, textOption, toText)
 import           Chainweb.Version
 import           Control.Error.Util (hoistMaybe, hush, (!?))
 import           Control.Monad.Trans.Except (runExceptT)
@@ -41,7 +41,7 @@ import           Network.HTTP.Client (newManager)
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import qualified Network.Wai.Handler.Warp as W
 import           Network.Wai.Middleware.Cors
-import           Options.Applicative hiding (footer, header, str)
+import           Options.Applicative hiding (command, footer, header, str)
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Runtime as P
 import           RIO hiding (Handler, local, on)
@@ -341,8 +341,19 @@ signEvent e w (VtyEvent ve) = case ve of
 
   -- Sign the Transaction --
   V.EvKey V.KEnter [] -> do
-    liftIO . atomically $ putTMVar (respOf e) Nothing -- TODO Accept!
-    continue (w & field @"focOf" %~ focusSetCurrent TXList)
+    liftIO $ for_ codeAndChain $ \(c, cid) -> do
+      m  <- meta (accOf e) cid
+      tx <- view command <$> transaction c (keysOf e) m
+      atomically $ putTMVar (respOf e) (Just . Signed tx $ toText cid)
+    continue $ w & field @"focOf" %~ focusSetCurrent TXList
+                 & field @"reqOf" .~ Nothing
+    where
+      codeAndChain :: Maybe (PactCode, ChainId)
+      codeAndChain = do
+        sr  <- reqOf w
+        c   <- code $ _signReq_code sr
+        cid <- _signReq_chainId sr >>= fromText
+        pure (c, cid)
 
   _ -> continue w
 signEvent _ w _ = continue w
@@ -426,11 +437,10 @@ instance FromJSON SignReq where
   parseJSON invalid =
     prependFailure "parsing SignReq failed, " $ typeMismatch "Object" invalid
 
-data Signed = Signed
-  { _signingResponse_body    :: P.Command Text
-  , _signingResponse_chainId :: Text }
-  deriving stock (Generic)
-  deriving anyclass (ToJSON)
+data Signed = Signed (P.Command Text) Text
+
+instance ToJSON Signed where
+  toJSON (Signed c t) = object [ "body" .= c, "chainId" .= t ]
 
 server :: BChan SignReq -> TMVar (Maybe Signed) -> Server API
 server bc ts = sign

@@ -16,6 +16,7 @@ module Holding
   , codeFromFile
   , Transaction
   , transaction
+  , command
     -- ** Pact Communication
   , Account(..)
   , meta
@@ -166,7 +167,10 @@ codeFromFile = fmap code . readFileUtf8
 
 -- | A parsed and signed transaction, ready to be sent to a running Chainweb
 -- instance.
-newtype Transaction = Transaction (P.Command Text)
+newtype Transaction = Transaction { cmdt :: P.Command Text }
+
+command :: SimpleGetter Transaction (P.Command Text)
+command = to cmdt
 
 -- | Form some parsed `PactCode` into a `Transaction` that's sendable to a running
 -- Chainweb instance.
@@ -180,13 +184,14 @@ transaction (PactCode pc) (Keys ks) pm =
 -- | A "Coin Contract" account.
 newtype Account = Account Text deriving (Generic)
 
+-- TODO Make the `GasLimit` an argument for the signing API.
 -- TODO Come up with a sane default `GasPrice`.
 -- | To feed to the `transaction` function.
 meta :: Account -> ChainId -> IO P.PublicMeta
 meta (Account t) c = P.PublicMeta c' t gl gp (P.TTLSeconds 3600) <$> txTime
   where
     c' = P.ChainId $ chainIdToText c
-    gl = P.GasLimit 100
+    gl = P.GasLimit 1000
     gp = P.GasPrice 0.00000001
 
 txTime :: IO P.TxCreationTime
