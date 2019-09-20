@@ -101,6 +101,29 @@ env (Args v fp acc url) = runExceptT $ do
   ts <- newEmptyTMVarIO
   pure $ Env v (ClientEnv mn url Nothing) ks acc bc ts
 
+main :: IO ()
+main = execParser opts >>= env >>= \case
+  Left _ -> pure () -- TODO Say something.
+  Right e -> do
+    initialVty <- buildVty
+    race_ (W.run 9467 $ signApp (chanOf e) (respOf e))
+          (void $ customMain initialVty buildVty (Just $ chanOf e) (app e) (initial e))
+  where
+    buildVty :: IO V.Vty
+    buildVty = V.mkVty V.defaultConfig
+
+    initial :: Env -> Wallet
+    initial e = Wallet
+      (L.list TXList mempty 1)
+      ""
+      (focusRing [minBound ..])
+      (replForm e . REPL (unsafeChainId 0) Local . fromJust $ code "(+ 1 1)") []
+      Nothing
+
+    opts :: ParserInfo Args
+    opts = info (pArgs <**> helper)
+        (fullDesc <> progDesc "The Bag of Holding: A Chainweb Wallet")
+
 --------------------------------------------------------------------------------
 -- Endpoint Calling
 
@@ -143,64 +166,13 @@ data REPL = REPL { rcid :: !ChainId, re :: !Endpoint, rpc :: !PactCode }
 data Name = TXList | ReplChain | ReplLocal | ReplSend | ReplCode | Help | Balances | Sign
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
-header :: Widget a
-header = vLimit 1 . C.center $ txt " The Bag of Holding "
-
-footer :: Text -> Widget a
-footer t = vLimit 1 $ txt (T.take 10 t) <+> C.hCenter legend
+app :: Env -> App Wallet SignReq Name
+app e = App { appDraw = draw e
+            , appChooseCursor = focusRingCursor focOf
+            , appHandleEvent = event e
+            , appStartEvent = pure
+            , appAttrMap = const $ A.attrMap V.defAttr attrs }
   where
-    legend = txt "[T]ransaction - [B]alances - [H]elp - [Q]uit"
-
-replForm :: Env -> REPL -> Form REPL e Name
-replForm e = newForm
-  [ label "Chain" @@= editField (field @"rcid") ReplChain Nothing
-    toText goodChain (txt . T.unlines) id
-  , label "Endpoint" @@= radioField (field @"re")
-    [(Local, ReplLocal, "Local"), (Send, ReplSend, "Send")]
-  , label "Pact Code" @@= editField (field @"rpc") ReplCode Nothing
-    prettyCode (code . T.unlines) (txt . T.unlines) id
-  ]
-  where
-    label :: Text -> Widget Name -> Widget Name
-    label t w = padBottom (Pad 1) $ vLimit 1 (hLimit 15 $ txt t <+> fill ' ') <+> w
-
-    -- | Requires that the specified `ChainId` be a valid member of the Chain
-    -- Graph of the current `ChainwebVersion`.
-    goodChain :: [Text] -> Maybe ChainId
-    goodChain ts = do
-      cid <- chainIdFromText $ T.unlines ts
-      bool Nothing (Just cid) . HS.member cid . chainIds $ verOf e
-
-main :: IO ()
-main = execParser opts >>= env >>= \case
-  Left _ -> pure () -- TODO Say something.
-  Right e -> do
-    initialVty <- buildVty
-    race_ (W.run 9467 $ signApp (chanOf e) (respOf e))
-          (void $ customMain initialVty buildVty (Just $ chanOf e) (app e) (initial e))
-  where
-    buildVty :: IO V.Vty
-    buildVty = V.mkVty V.defaultConfig
-
-    initial :: Env -> Wallet
-    initial e = Wallet
-      (L.list TXList mempty 1)
-      ""
-      (focusRing [minBound ..])
-      (replForm e . REPL (unsafeChainId 0) Local . fromJust $ code "(+ 1 1)") []
-      Nothing
-
-    opts :: ParserInfo Args
-    opts = info (pArgs <**> helper)
-        (fullDesc <> progDesc "The Bag of Holding: A Chainweb Wallet")
-
-    app :: Env -> App Wallet SignReq Name
-    app e = App { appDraw = draw e
-                , appChooseCursor = focusRingCursor focOf
-                , appHandleEvent = event e
-                , appStartEvent = pure
-                , appAttrMap = const $ A.attrMap V.defAttr attrs }
-
     attrs :: [(AttrName, V.Attr)]
     attrs = [ -- (L.listAttr,         V.white `on` V.blue)
               (L.listSelectedAttr,   V.blue  `on` V.white)
@@ -305,6 +277,34 @@ draw e w = dispatch <> [ui]
             Right (T t) -> txt . tencode $ txr t
             Right (R r) -> vBox [ txt $ prettyReceipt r
                                 , padTop (Pad 1) $ txt "Press [Enter] to query the result." ]
+
+header :: Widget a
+header = vLimit 1 . C.center $ txt " The Bag of Holding "
+
+footer :: Text -> Widget a
+footer t = vLimit 1 $ txt (T.take 10 t) <+> C.hCenter legend
+  where
+    legend = txt "[T]ransaction - [B]alances - [H]elp - [Q]uit"
+
+replForm :: Env -> REPL -> Form REPL e Name
+replForm e = newForm
+  [ label "Chain" @@= editField (field @"rcid") ReplChain Nothing
+    toText goodChain (txt . T.unlines) id
+  , label "Endpoint" @@= radioField (field @"re")
+    [(Local, ReplLocal, "Local"), (Send, ReplSend, "Send")]
+  , label "Pact Code" @@= editField (field @"rpc") ReplCode Nothing
+    prettyCode (code . T.unlines) (txt . T.unlines) id
+  ]
+  where
+    label :: Text -> Widget Name -> Widget Name
+    label t w = padBottom (Pad 1) $ vLimit 1 (hLimit 15 $ txt t <+> fill ' ') <+> w
+
+    -- | Requires that the specified `ChainId` be a valid member of the Chain
+    -- Graph of the current `ChainwebVersion`.
+    goodChain :: [Text] -> Maybe ChainId
+    goodChain ts = do
+      cid <- chainIdFromText $ T.unlines ts
+      bool Nothing (Just cid) . HS.member cid . chainIds $ verOf e
 
 event :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
 event e w be = case focusGetCurrent $ focOf w of
