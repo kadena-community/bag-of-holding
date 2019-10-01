@@ -1,9 +1,10 @@
-{-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE DeriveGeneric       #-}
-{-# LANGUAGE DerivingStrategies  #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications    #-}
-{-# LANGUAGE TypeOperators       #-}
+{-# LANGUAGE DataKinds                  #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE DerivingStrategies         #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE TypeOperators              #-}
 
 module Holding
   ( -- * Types
@@ -17,6 +18,7 @@ module Holding
   , Transaction
   , transaction
   , command
+  , TxData(..)
     -- ** Pact Communication
   , Account(..)
   , meta
@@ -32,7 +34,7 @@ module Holding
 
     -- ** Endpoints
     -- | To call a running Chainweb instance.
-  , send
+  , send, sends
   , poll
   , listen
   , local
@@ -85,14 +87,14 @@ import           Text.Printf (printf)
 DO:
 - [ ] Manage keys.
 - [ ] Allow simple transfers, cross-chain transfers, and balance checks (single-sig only).
-- [ ] Manage active `RequestKeys` in a sane way.
+- [x] Manage active `RequestKeys` in a sane way.
 - [x] Allow short, custom TXs to be written.
 - [ ] Track health of the bootstrap nodes.
 - [x] Pretty-print the results of TXs.
 - [x] Show a history of recent TXs.
-- [ ] LISTEN ON PORT 9467 FOR SIGNING TXS IN DAPPS! HAVE MANUAL CONFIRMATION WITHIN WALLET!
+- [x] LISTEN ON PORT 9467 FOR SIGNING TXS IN DAPPS! HAVE MANUAL CONFIRMATION WITHIN WALLET!
 - [x] Bare-bones REPL mode that sends gasless TXs to `local/`.
-- [ ] Show JSON'd config values in Help window.
+- [x] Show JSON'd config values in Help window.
 - [ ] Use `brick-skylighting` for syntax highlighting.
 - [x] Print TX results as YAML, not JSON.
 
@@ -174,9 +176,11 @@ command = to cmdt
 
 -- | Form some parsed `PactCode` into a `Transaction` that's sendable to a running
 -- Chainweb instance.
-transaction :: PactCode -> Keys -> P.PublicMeta -> IO Transaction
-transaction (PactCode pc) (Keys ks) pm =
-  Transaction <$> P.mkExec (T.unpack pc) Null pm [ks] Nothing
+transaction :: TxData -> PactCode -> Keys -> P.PublicMeta -> IO Transaction
+transaction (TxData td) (PactCode pc) (Keys ks) pm =
+  Transaction <$> P.mkExec (T.unpack pc) td pm [ks] Nothing
+
+newtype TxData = TxData Value deriving newtype (ToJSON, FromJSON)
 
 --------------------------------------------------------------------------------
 -- Pact Communication
@@ -202,6 +206,8 @@ txTime = fromInteger . round <$> getPOSIXTime
 -- that `Transaction`.
 newtype Receipt = Receipt P.RequestKey deriving stock (Generic)
 
+newtype Receipts = Receipts (NonEmpty P.RequestKey) deriving stock (Generic)
+
 prettyReceipt :: Receipt -> Text
 prettyReceipt (Receipt r) = P.requestKeyToB16Text r
 
@@ -224,6 +230,10 @@ pactDouble = pactValue . _Ctor @"PLiteral" . _Ctor @"LDecimal" . to realToFrac
 send :: ChainwebVersion -> ChainId -> Transaction -> ClientM Receipt
 send v cid (Transaction tx) = case clients v cid of
   f :<|> _ -> Receipt . NEL.head . P._rkRequestKeys <$> f (P.SubmitBatch $ pure tx)
+
+sends :: ChainwebVersion -> ChainId -> NonEmpty Transaction -> ClientM Receipts
+sends v cid txs = case clients v cid of
+  f :<|> _ -> Receipts . P._rkRequestKeys <$> f (P.SubmitBatch $ NEL.map cmdt txs)
 
 -- | A quick peek into the status of a `Transaction`. Unlike `listen`, this is
 -- non-blocking and so will always return right away, even when the

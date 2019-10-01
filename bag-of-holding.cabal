@@ -62,6 +62,7 @@ executable boh
     , vty                   >=5.25
     , wai-cors              >=0.2
     , warp                  >=3.2
+    , witherable >= 0.3
 
 -- test-suite boh-tests
 --   import:         commons

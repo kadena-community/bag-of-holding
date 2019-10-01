@@ -33,6 +33,7 @@ import           Data.Generics.Product.Fields (field)
 import           Data.Generics.Product.Positions (position)
 import           Data.Generics.Sum.Constructors (_Ctor)
 import           Data.Generics.Wrapped (_Unwrapped)
+import           Data.Witherable (wither)
 import qualified Graphics.Vty as V
 import           Holding
 import           Lens.Micro
@@ -45,8 +46,10 @@ import           Options.Applicative hiding (command, footer, header, str)
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Runtime as P
 import           RIO hiding (Handler, local, on)
+import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.HashSet as HS
 import qualified RIO.List as L
+import qualified RIO.NonEmpty.Partial as NEL
 import           RIO.Partial (fromJust)
 import qualified RIO.Seq as Seq
 import qualified RIO.Text as T
@@ -117,7 +120,7 @@ main = execParser opts >>= env >>= \case
       (L.list TXList mempty 1)
       ""
       (focusRing [minBound ..])
-      (replForm e . REPL (unsafeChainId 0) Local . fromJust $ code "(+ 1 1)") []
+      (replForm e . REPL (unsafeChainId 0) Local (TxData Null) . fromJust $ code "(+ 1 1)") []
       Nothing
 
     opts :: ParserInfo Args
@@ -128,9 +131,9 @@ main = execParser opts >>= env >>= \case
 -- Endpoint Calling
 
 call :: Env -> REPL -> IO TX
-call e r@(REPL cid ep c) = do
+call e r@(REPL cid ep td c) = do
   m  <- meta (accOf e) cid
-  tx <- transaction c (keysOf e) m
+  tx <- transaction td c (keysOf e) m
   TX r <$> runClientM (f tx) (clenvOf e)
   where
     f :: Transaction -> ClientM From
@@ -159,11 +162,12 @@ data From = R Receipt | T TXResult deriving (Generic)
 
 data Endpoint = Local | Send deriving (Eq)
 
-data REPL = REPL { rcid :: !ChainId, re :: !Endpoint, rpc :: !PactCode }
+data REPL = REPL { rcid :: !ChainId, re :: !Endpoint, dat :: !TxData, rpc :: !PactCode }
   deriving stock (Generic)
 
 -- | Resource names.
-data Name = TXList | ReplChain | ReplLocal | ReplSend | ReplCode | Help | Balances | Sign
+data Name = TXList | ReplChain | ReplLocal | ReplSend | ReplData | ReplCode
+  | Help | Balances | Sign
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
 app :: Env -> App Wallet SignReq Name
@@ -196,7 +200,7 @@ draw e w = dispatch <> [ui]
       _             -> []
 
     repl :: Widget Name
-    repl = C.centerLayer . vLimit 10 . hLimitPercent 50
+    repl = C.centerLayer . vLimit 12 . hLimitPercent 50
            . B.borderWithLabel (txt " Pact Transaction ")
            $ renderForm (replOf w) <=> C.hCenter (txt "[Esc] [Enter]")
 
@@ -251,7 +255,7 @@ draw e w = dispatch <> [ui]
         | otherwise = L.renderList (const txListItem) True $ txsOf w
 
     txListItem :: TX -> Widget Name
-    txListItem (TX (REPL cid ep pc) eef) = vLimit 1 $ hBox
+    txListItem (TX (REPL cid ep _ pc) eef) = vLimit 1 $ hBox
       [ hLimit 1 $ txt icon
       , padLeft (Pad 2) . str $ printf "%02d" (chainIdInt cid :: Int)
       , padLeft (Pad 2) $ txt end
@@ -292,6 +296,8 @@ replForm e = newForm
     toText goodChain (txt . T.unlines) id
   , label "Endpoint" @@= radioField (field @"re")
     [(Local, ReplLocal, "Local"), (Send, ReplSend, "Send")]
+  , label "TX Data" @@= editField (field @"dat") ReplData Nothing
+    (decodeUtf8Lenient . BL.toStrict . encode) (decodeStrict' . encodeUtf8 . T.unlines) (txt . T.unlines) id
   , label "Pact Code" @@= editField (field @"rpc") ReplCode Nothing
     prettyCode (code . T.unlines) (txt . T.unlines) id
   ]
@@ -346,7 +352,8 @@ signEvent e w (VtyEvent ve) = case ve of
   V.EvKey V.KEnter [] -> do
     liftIO $ for_ codeAndChain $ \(c, cid) -> do
       m  <- meta (accOf e) cid
-      tx <- view command <$> transaction c (keysOf e) m
+      -- TODO This should return the data that they gave, not `Null`!
+      tx <- view command <$> transaction (TxData Null) c (keysOf e) m
       atomically $ putTMVar (respOf e) (Just . Signed tx $ toText cid)
     continue $ w & field @"focOf" %~ focusSetCurrent TXList
                  & field @"reqOf" .~ Nothing
@@ -385,7 +392,7 @@ mainEvent e w (VtyEvent ve) = case ve of
     where
       cs = L.sort . toList . chainIds $ verOf e
       cd = balance $ accOf e
-      rs = map (\cid -> (cid, REPL cid Local <$> cd)) cs
+      rs = map (\cid -> (cid, REPL cid Local (TxData Null) <$> cd)) cs
       ds = preview (_Just . position @2 . _Right . _Ctor @"T" . pactDouble)
 
   -- Help Window --
@@ -396,7 +403,7 @@ mainEvent e w (VtyEvent ve) = case ve of
     where
       f :: IO (Maybe Wallet)
       f = runMaybeT $ do
-        TX (REPL cid _ _) eef <- hoistMaybe (w ^? from)
+        TX (REPL cid _ _ _) eef <- hoistMaybe (w ^? from)
         r <- hoistMaybe (eef ^? _Right . _Ctor @"R")
         t <- MaybeT . fmap (join . hush) $ runClientM (listen (verOf e) cid r) (clenvOf e)
         pure (w & field @"txsOf" %~ L.listModify (set (position @2) (Right $ T t)))
