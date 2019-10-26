@@ -176,9 +176,12 @@ command = to cmdt
 
 -- | Form some parsed `PactCode` into a `Transaction` that's sendable to a running
 -- Chainweb instance.
-transaction :: TxData -> PactCode -> Keys -> P.PublicMeta -> IO Transaction
-transaction (TxData td) (PactCode pc) (Keys ks) pm =
-  Transaction <$> P.mkExec (T.unpack pc) td pm [ks] Nothing
+transaction :: ChainwebVersion -> TxData -> PactCode -> Keys -> P.PublicMeta -> IO Transaction
+transaction v (TxData td) (PactCode pc) (Keys ks) pm =
+  Transaction <$> P.mkExec (T.unpack pc) td pm [(ks, mempty)] nid Nothing
+  where
+    nid :: Maybe P.NetworkId
+    nid = Just . P.NetworkId $ chainwebVersionToText v
 
 newtype TxData = TxData Value deriving newtype (ToJSON, FromJSON)
 
@@ -280,9 +283,9 @@ newtype Sender = Sender Account
 -- | The receiver `Account` in a coin transfer.
 newtype Receiver = Receiver Account
 
--- | The @coin.account-balance@ function.
+-- | The @coin.get-balance@ function.
 balance :: Account -> Maybe PactCode
-balance (Account a) = code . T.pack $ printf "(coin.account-balance \"%s\")" a
+balance (Account a) = code . T.pack $ printf "(coin.get-balance \"%s\")" a
 
 -- | The @coin.transfer@ function.
 transfer :: Sender -> Receiver -> Double -> Maybe PactCode

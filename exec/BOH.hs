@@ -33,7 +33,6 @@ import           Data.Generics.Product.Fields (field)
 import           Data.Generics.Product.Positions (position)
 import           Data.Generics.Sum.Constructors (_Ctor)
 import           Data.Generics.Wrapped (_Unwrapped)
-import           Data.Witherable (wither)
 import qualified Graphics.Vty as V
 import           Holding
 import           Lens.Micro
@@ -49,12 +48,13 @@ import           RIO hiding (Handler, local, on)
 import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.HashSet as HS
 import qualified RIO.List as L
-import qualified RIO.NonEmpty.Partial as NEL
 import           RIO.Partial (fromJust)
 import qualified RIO.Seq as Seq
 import qualified RIO.Text as T
+import qualified RIO.Text.Lazy as TL
 import           Servant
 import           Servant.Client
+import           Text.Pretty.Simple (pShowNoColor)
 import           Text.Printf (printf)
 
 --------------------------------------------------------------------------------
@@ -133,7 +133,7 @@ main = execParser opts >>= env >>= \case
 call :: Env -> REPL -> IO TX
 call e r@(REPL cid ep td c) = do
   m  <- meta (accOf e) cid
-  tx <- transaction td c (keysOf e) m
+  tx <- transaction (verOf e) td c (keysOf e) m
   TX r <$> runClientM (f tx) (clenvOf e)
   where
     f :: Transaction -> ClientM From
@@ -275,9 +275,9 @@ draw e w = dispatch <> [ui]
       where
         contents :: Widget Name
         contents = case w ^? from of
-          Nothing             -> txt "Select a Transaction."
+          Nothing         -> txt "Select a Transaction."
           Just (TX _ eef) -> case eef of
-            Left _      -> txt "This Transaction had an HTTP failure."
+            Left err    -> txt . TL.toStrict $ pShowNoColor err
             Right (T t) -> txt . tencode $ txr t
             Right (R r) -> vBox [ txt $ prettyReceipt r
                                 , padTop (Pad 1) $ txt "Press [Enter] to query the result." ]
@@ -353,7 +353,7 @@ signEvent e w (VtyEvent ve) = case ve of
     liftIO $ for_ codeAndChain $ \(c, cid) -> do
       m  <- meta (accOf e) cid
       -- TODO This should return the data that they gave, not `Null`!
-      tx <- view command <$> transaction (TxData Null) c (keysOf e) m
+      tx <- view command <$> transaction (verOf e) (TxData Null) c (keysOf e) m
       atomically $ putTMVar (respOf e) (Just . Signed tx $ toText cid)
     continue $ w & field @"focOf" %~ focusSetCurrent TXList
                  & field @"reqOf" .~ Nothing
@@ -469,3 +469,22 @@ signApp bc ts = cors laxCors . serve (Proxy @API) $ server bc ts
   where
     laxCors :: a -> Maybe CorsResourcePolicy
     laxCors _ = Just $ simpleCorsResourcePolicy { corsRequestHeaders = simpleHeaders }
+
+-- steal :: Env -> IO ()
+-- steal e = do
+--   txs <- NEL.fromList <$> wither stealN [1..1000]
+--   void $ runClientM (sends (verOf e) cid txs) (clenvOf e)
+--   where
+--     k :: Value
+--     k = String "db776793be0fcf8e76c75bdb35a36e67f298111dc6145c66693b0133192e2616"
+
+--     cid :: ChainId
+--     cid = unsafeChainId 0
+
+--     stealN :: Int -> IO (Maybe Transaction)
+--     stealN n = for (code . cod $ "whitehat" <> textDisplay n) $ \c -> do
+--       m <- meta (accOf e) cid
+--       transaction (TxData $ object ["ks" .= [k]]) c (keysOf e) m
+
+-- cod :: Text -> Text
+-- cod = T.pack . printf "(coin-faucet.create-and-request-coin \"%s\" (read-keyset 'ks) 20.0)"
