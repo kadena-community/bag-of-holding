@@ -222,11 +222,15 @@ draw e w = dispatch <> [ui]
       where
         url = "gitlab.com/fosskers/bag-of-holding"
 
+    -- | Display account balances on every chain.
     balances :: Widget Name
     balances =
-      C.centerLayer . vLimit 14 . hLimitPercent 50 . B.borderWithLabel (txt " Balances ")
-      $ vBox (map f $ balsOf w) <=> padTop (Pad 1) (C.hCenter $ txt "Press any key.")
+      C.centerLayer . vLimit 15 . hLimitPercent 50 . B.borderWithLabel (txt " Balances ")
+      $ vBox (map f $ balsOf w) <=> total <=> padTop (Pad 1) (C.hCenter $ txt "Press any key.")
       where
+        total :: Widget w
+        total = txt "Total   => " <+> str (show . sum . mapMaybe snd $ balsOf w)
+
         f :: (ChainId, Maybe Double) -> Widget Name
         f (cid, md) = hBox
           [ txt "Chain ", txt (toText cid), txt " => "
