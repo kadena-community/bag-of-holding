@@ -1,4 +1,4 @@
-resolver: lts-14.11
+resolver: lts-14.13
 
 ghc-options: {"$locals": -ddump-to-file -ddump-hi}
 
@@ -28,8 +28,8 @@ extra-deps:
 
   # --- Custom Pins --- #
   - github: kadena-io/chainweb-node
-    commit: 94ae56ba3dcc7f9fc6d67facd5cf61ca977c9272
+    commit: 09ee3e3e5be3464e09a75952b1c55ee45912db1b
   - github: kadena-io/pact
-    commit: a0a7a83c9756a62a7d3bcd4b676f4fa947bd64b2
+    commit: cdf538563501d9e657ef49141c8c3a7921d03789
   - github: kadena-io/chainweb-storage
     commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a
