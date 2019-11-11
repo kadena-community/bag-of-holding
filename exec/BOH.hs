@@ -75,7 +75,7 @@ pVersion = textOption
      <> help ("Chainweb Network Version (default: " <> T.unpack (toText defv) <> ")"))
   where
     defv :: ChainwebVersion
-    defv = Testnet02
+    defv = Mainnet01
 
 pUrl :: Parser BaseUrl
 pUrl = hostAddressToBaseUrl Https <$> host
