@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds          #-}
-{-# LANGUAGE DeriveAnyClass     #-}
 {-# LANGUAGE DeriveGeneric      #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts   #-}
@@ -95,7 +94,6 @@ data Env = Env
   deriving stock (Generic)
 
 -- | From some CLI `Args`, form the immutable runtime environment.
--- env :: Args -> IO (Either Text (LogFunc -> Env))
 env :: Args -> IO (Either Text Env)
 env (Args v fp acc url) = runExceptT $ do
   ks <- keysFromFile fp !? ("Could not decode key file: " <> T.pack fp)
@@ -473,22 +471,3 @@ signApp bc ts = cors laxCors . serve (Proxy @API) $ server bc ts
   where
     laxCors :: a -> Maybe CorsResourcePolicy
     laxCors _ = Just $ simpleCorsResourcePolicy { corsRequestHeaders = simpleHeaders }
-
--- steal :: Env -> IO ()
--- steal e = do
---   txs <- NEL.fromList <$> wither stealN [1..1000]
---   void $ runClientM (sends (verOf e) cid txs) (clenvOf e)
---   where
---     k :: Value
---     k = String "db776793be0fcf8e76c75bdb35a36e67f298111dc6145c66693b0133192e2616"
-
---     cid :: ChainId
---     cid = unsafeChainId 0
-
---     stealN :: Int -> IO (Maybe Transaction)
---     stealN n = for (code . cod $ "whitehat" <> textDisplay n) $ \c -> do
---       m <- meta (accOf e) cid
---       transaction (TxData $ object ["ks" .= [k]]) c (keysOf e) m
-
--- cod :: Text -> Text
--- cod = T.pack . printf "(coin-faucet.create-and-request-coin \"%s\" (read-keyset 'ks) 20.0)"

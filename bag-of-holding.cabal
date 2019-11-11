@@ -26,7 +26,7 @@ common commons
 
   build-depends:
     , aeson           ^>=1.4
-    , base            >=4.7  && <5
+    , base            >=4.12  && <5
     , chainweb        ^>=1.0
     , errors          ^>=2.3
     , generic-lens    >=1.1  && <1.3
@@ -56,14 +56,13 @@ executable boh
     , http-client           ^>=0.6
     , http-client-tls       ^>=0.3
     , optparse-applicative  ^>=0.14
-    , pretty-simple ^>= 2.2
+    , pretty-simple         ^>=2.2
     , servant               ^>=0.16
     , servant-server        ^>=0.16
     , transformers          ^>=0.5
     , vty                   >=5.25
     , wai-cors              >=0.2
     , warp                  >=3.2
-    , witherable >= 0.3
 
 -- test-suite boh-tests
 --   import:         commons
