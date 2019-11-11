@@ -218,7 +218,7 @@ draw e w = dispatch <> [ui]
       , txt "       Costs gas and takes time for the results."
       , padTop (Pad 1) $ C.hCenter (txt "Press any key.") ]
       where
-        url = "gitlab.com/fosskers/bag-of-holding"
+        url = "github.com/kadena-community/bag-of-holding"
 
     -- | Display account balances on every chain.
     balances :: Widget Name

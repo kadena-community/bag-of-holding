@@ -3,7 +3,7 @@ name:               bag-of-holding
 version:            1.0.0
 synopsis:           A terminal-based wallet for Chainweb.
 description:        A terminal-based wallet for Chainweb.
-homepage:           https://gitlab.com/fosskers/bag-of-holding
+homepage:           https://github.com/kadena-community/bag-of-holding
 author:             Colin Woodbury
 maintainer:         colin@fosskers.ca
 copyright:          2019 Colin Woodbury
