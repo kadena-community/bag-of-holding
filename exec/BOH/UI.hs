@@ -5,12 +5,14 @@
 {-# LANGUAGE TypeApplications   #-}
 
 module BOH.UI
-  ( Wallet(..)
-  , app
-  , Name(..)
-  , replForm
+  ( -- * Types
+    Wallet(..)
+  , Name(TXList)
   , REPL(..)
-  , Endpoint(..)
+  , Endpoint(Local)
+    -- * UI
+  , app
+  , replForm
   ) where
 
 import           BOH.CLI (Env(..))
@@ -25,6 +27,7 @@ import qualified Brick.Widgets.Edit as E
 import qualified Brick.Widgets.List as L
 import           Chainweb.Utils (fromText, toText)
 import           Chainweb.Version
+    (ChainId, chainIdFromText, chainIdInt, chainIds)
 import           Control.Error.Util (hoistMaybe, hush)
 import           Control.Monad.Trans.Maybe (MaybeT(..), runMaybeT)
 import           Data.Aeson (Value(..), decodeStrict', encode)

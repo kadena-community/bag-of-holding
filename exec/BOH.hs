@@ -8,7 +8,7 @@ import           BOH.UI
 import           Brick (customMain)
 import           Brick.Focus (focusRing)
 import qualified Brick.Widgets.List as L
-import           Chainweb.Version
+import           Chainweb.Version (unsafeChainId)
 import           Data.Aeson hiding (Options)
 import qualified Graphics.Vty as V
 import           Holding
