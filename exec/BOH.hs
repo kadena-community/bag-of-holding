@@ -104,7 +104,7 @@ env (Args v fp acc url) = runExceptT $ do
 
 main :: IO ()
 main = execParser opts >>= env >>= \case
-  Left _ -> pure () -- TODO Say something.
+  Left err -> printf "%s\n" err
   Right e -> do
     initialVty <- buildVty
     race_ (W.run 9467 $ signApp (chanOf e) (respOf e))

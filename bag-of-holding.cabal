@@ -23,10 +23,11 @@ common commons
   ghc-options:
     -Wall -Wcompat -Wpartial-fields -Wincomplete-record-updates
     -Wincomplete-uni-patterns -Widentities -funclutter-valid-hole-fits
+    -fmax-relevant-binds=0
 
   build-depends:
     , aeson           ^>=1.4
-    , base            >=4.12  && <5
+    , base            >=4.12 && <5
     , chainweb        ^>=1.0
     , errors          ^>=2.3
     , generic-lens    >=1.1  && <1.3
