@@ -51,6 +51,11 @@ executable boh
   ghc-options:    -threaded -with-rtsopts=-N
   hs-source-dirs: exec
   main-is:        BOH.hs
+  other-modules:
+    BOH.CLI
+    BOH.Signing
+    BOH.UI
+
   build-depends:
     , bag-of-holding
     , brick                 >=0.47 && <0.50
