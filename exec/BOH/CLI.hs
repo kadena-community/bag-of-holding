@@ -16,6 +16,7 @@ import           Network.HTTP.Client (newManager)
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Options.Applicative hiding (command, footer, header, str)
 import           RIO
+import qualified RIO.List as L
 import qualified RIO.Text as T
 import           Servant.Client
 
@@ -47,7 +48,12 @@ pUrl = option (eitherReader pBaseUrl)
   (long "node" <> metavar "HOSTNAME:PORT" <> help "Node to send TXs")
   where
     pBaseUrl :: String -> Either String BaseUrl
-    pBaseUrl = undefined
+    pBaseUrl s = case L.break (== ':') s of
+      ([],_) -> Left "Empty input"
+      (h, ':' : mp)  -> case readMaybe mp of
+          Nothing -> Left "Malformed port"
+          Just p  -> Right $ BaseUrl Https h p ""
+      _ -> Left "Bad url/port"
 
 -- | The immutable runtime environment.
 data Env = Env
