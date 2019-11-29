@@ -1,6 +1,6 @@
 cabal-version:      2.2
 name:               bag-of-holding
-version:            1.0.0
+version:            1.0.1
 synopsis:           A terminal-based wallet for Chainweb.
 description:        A terminal-based wallet for Chainweb.
 homepage:           https://github.com/kadena-community/bag-of-holding
