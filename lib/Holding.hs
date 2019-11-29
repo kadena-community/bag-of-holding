@@ -226,22 +226,71 @@ pactDouble = pactValue . _Ctor @"PLiteral" . _Ctor @"LDecimal" . to realToFrac
 --------------------------------------------------------------------------------
 -- Endpoint Calls
 
+type PactAPI = SendAPI :<|> PollAPI :<|> ListenAPI :<|> LocalAPI
+
+type SendAPI = "chainweb"
+  :> "0.0"
+  :> Capture "version" ChainwebVersion
+  :> "chain"
+  :> Capture "chainId" ChainId
+  :> "pact"
+  :> "api"
+  :> "v1"
+  :> "send"
+  :> ReqBody '[JSON] P.SubmitBatch
+  :> Post '[JSON] P.RequestKeys
+
+type PollAPI = "chainweb"
+  :> "0.0"
+  :> Capture "version" ChainwebVersion
+  :> "chain"
+  :> Capture "chainId" ChainId
+  :> "pact"
+  :> "api"
+  :> "v1"
+  :> "poll"
+  :> ReqBody '[JSON] P.Poll
+  :> Post '[JSON] P.PollResponses
+
+type ListenAPI = "chainweb"
+  :> "0.0"
+  :> Capture "version" ChainwebVersion
+  :> "chain"
+  :> Capture "chainId" ChainId
+  :> "pact"
+  :> "api"
+  :> "v1"
+  :> "listen"
+  :> ReqBody '[JSON] P.ListenerRequest
+  :> Post '[JSON] P.ListenResponse
+
+type LocalAPI = "chainweb"
+  :> "0.0"
+  :> Capture "version" ChainwebVersion
+  :> "chain"
+  :> Capture "chainId" ChainId
+  :> "pact"
+  :> "api"
+  :> "v1"
+  :> "local"
+  :> ReqBody '[JSON] (P.Command Text)
+  :> Post '[JSON] (P.CommandResult P.Hash)
+
 -- | Submit a `Transaction` to Chainweb. This will cost gas, and the associated
 -- `Account` will be charged.
 send :: ChainwebVersion -> ChainId -> Transaction -> ClientM Receipt
-send v cid (Transaction tx) = case clients v cid of
-  f :<|> _ -> Receipt . NEL.head . P._rkRequestKeys <$> f (P.SubmitBatch $ pure tx)
+send v cid (Transaction tx) =
+  Receipt . NEL.head . P._rkRequestKeys <$> send' v cid (P.SubmitBatch $ pure tx)
 
 sends :: ChainwebVersion -> ChainId -> NonEmpty Transaction -> ClientM Receipts
-sends v cid txs = case clients v cid of
-  f :<|> _ -> Receipts . P._rkRequestKeys <$> f (P.SubmitBatch $ NEL.map cmdt txs)
+sends v cid txs =
+  Receipts . P._rkRequestKeys <$> send' v cid (P.SubmitBatch $ NEL.map cmdt txs)
 
 -- | A quick peek into the status of a `Transaction`. Unlike `listen`, this is
 -- non-blocking and so will always return right away, even when the
 -- `Transaction` has not completed.
 poll :: ChainwebVersion -> ChainId -> Receipt -> ClientM (Maybe TXResult)
-poll v cid (Receipt rk) = case clients v cid of
-  _ :<|> f :<|> _ -> g <$> f (P.Poll $ pure rk)
+poll v cid (Receipt rk) = g <$> poll' v cid (P.Poll $ pure rk)
   where
     g :: P.PollResponses -> Maybe TXResult
     g (P.PollResponses hm) = TXResult <$> HM.lookup rk hm
@@ -250,8 +299,7 @@ poll v cid (Receipt rk) = case clients v cid of
 -- Might time out, in which case `Nothing` is returned. Should return quickly
 -- for `Transaction`s which have already completed.
 listen :: ChainwebVersion -> ChainId -> Receipt -> ClientM (Maybe TXResult)
-listen v cid (Receipt rk) = case clients v cid of
-  _ :<|> _ :<|> f :<|> _ -> g <$> f (P.ListenerRequest rk)
+listen v cid (Receipt rk) = g <$> listen' v cid (P.ListenerRequest rk)
   where
     g :: P.ListenResponse -> Maybe TXResult
     g (P.ListenTimeout _)   = Nothing
@@ -259,18 +307,13 @@ listen v cid (Receipt rk) = case clients v cid of
 
 -- | A non-blocking `Transaction` that can't write changes and spends no gas.
 local :: ChainwebVersion -> ChainId -> Transaction -> ClientM TXResult
-local v cid (Transaction tx) = case clients v cid of
-  _ :<|> _ :<|> _ :<|> f -> TXResult <$> f tx
+local v cid (Transaction tx) = TXResult <$> local' v cid tx
 
-clients
-  :: ChainwebVersion
-  -> ChainId
-  ->   (P.SubmitBatch -> ClientM P.RequestKeys)
-  :<|> (P.Poll -> ClientM P.PollResponses)
-  :<|> (P.ListenerRequest -> ClientM P.ListenResponse)
-  :<|> (P.Command Text -> ClientM (P.CommandResult P.Hash))
-clients _ _ = undefined
-  -- client (pactApi @v @cid)
+send'   :: ChainwebVersion -> ChainId -> P.SubmitBatch -> ClientM P.RequestKeys
+poll'   :: ChainwebVersion -> ChainId -> P.Poll -> ClientM P.PollResponses
+listen' :: ChainwebVersion -> ChainId -> P.ListenerRequest -> ClientM P.ListenResponse
+local'  :: ChainwebVersion -> ChainId -> P.Command Text -> ClientM (P.CommandResult P.Hash)
+send' :<|> poll' :<|> listen' :<|> local' = client (Proxy @PactAPI)
 
 --------------------------------------------------------------------------------
 -- Coin Contract Functions
