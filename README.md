@@ -19,4 +19,4 @@ Where `keys.json` has the format:
 }
 ```
 
-Clearly not yet secure. Use at your own discretion.
+This is not (yet) a secure file format, but `boh` itself is safe to use.
