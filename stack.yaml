@@ -10,26 +10,6 @@ extra-deps:
   - github: kadena-io/thyme
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
 
-  # --- Transitive Chainweb Dependencies --- #
-  # Most of this can be removed once a `chainweb-types` repo is created.
-  - QuickCheck-GenT-0.2.0
-  - bloomfilter-2.0.1.0
-  - digraph-0.1.0.2
-  - fake-0.1.1.2
-  - generic-lens-1.2.0.1
-  - loglevel-0.1.0.0
-  - merkle-log-0.1.0.0
-  - mwc-probability-2.0.4
-  - paths-0.2.0.0
-  - streaming-events-1.0.0
-  - strict-tuple-0.1.3
-  - tls-1.5.2
-  - yet-another-logger-0.3.1
-
   # --- Custom Pins --- #
-  - github: kadena-io/chainweb-node
-    commit: dcc25bad55930385b2c7b25226071ea321288718
   - github: kadena-io/pact
     commit: 084e129bb38010ef0d0d2b84a0708d1877cdd9ed
-  - github: kadena-io/chainweb-storage
-    commit: 17a5fb130926582eff081eeb1b94cb6c7097c67a

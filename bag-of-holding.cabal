@@ -1,6 +1,6 @@
 cabal-version:      2.2
 name:               bag-of-holding
-version:            1.0.0
+version:            1.0.1
 synopsis:           A terminal-based wallet for Chainweb.
 description:        A terminal-based wallet for Chainweb.
 homepage:           https://github.com/kadena-community/bag-of-holding
@@ -28,7 +28,6 @@ common commons
   build-depends:
     , aeson           ^>=1.4
     , base            >=4.12 && <5
-    , chainweb        ^>=1.0
     , errors          ^>=2.3
     , generic-lens    >=1.1  && <1.3
     , microlens       ^>=0.4
@@ -39,7 +38,10 @@ common commons
 library
   import:          commons
   hs-source-dirs:  lib
-  exposed-modules: Holding
+  exposed-modules:
+    Holding
+    Holding.Chainweb
+
   build-depends:
     , prettyprinter  ^>=1.2
     , servant        ^>=0.16
@@ -51,6 +53,11 @@ executable boh
   ghc-options:    -threaded -with-rtsopts=-N
   hs-source-dirs: exec
   main-is:        BOH.hs
+  other-modules:
+    BOH.CLI
+    BOH.Signing
+    BOH.UI
+
   build-depends:
     , bag-of-holding
     , brick                 >=0.47 && <0.50
