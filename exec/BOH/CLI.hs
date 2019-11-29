@@ -8,8 +8,6 @@ module BOH.CLI
 
 import           BOH.Signing (SignReq, Signed)
 import           Brick.BChan (BChan, newBChan)
-import           Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
-import           Chainweb.Utils (textOption)
 import           Control.Error.Util (note, (!?))
 import           Control.Monad.Trans.Except (runExceptT)
 import           Holding
@@ -45,10 +43,11 @@ pVersion = option p
     defv = Mainnet
 
 pUrl :: Parser BaseUrl
-pUrl = hostAddressToBaseUrl Https <$> host
+pUrl = hostAddressToBaseUrl <$> host
   where
     host :: Parser HostAddress
-    host = textOption (long "node" <> metavar "HOSTNAME:PORT" <> help "Node to send TXs")
+    host = option (eitherReader (note "Invalid host" . hostAddressP))
+      (long "node" <> metavar "HOSTNAME:PORT" <> help "Node to send TXs")
 
 -- | The immutable runtime environment.
 data Env = Env
