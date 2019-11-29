@@ -8,10 +8,10 @@ import           BOH.UI
 import           Brick (customMain)
 import           Brick.Focus (focusRing)
 import qualified Brick.Widgets.List as L
-import           Chainweb.Version (unsafeChainId)
 import           Data.Aeson hiding (Options)
 import qualified Graphics.Vty as V
 import           Holding
+import           Holding.Chainweb
 import qualified Network.Wai.Handler.Warp as W
 import           Options.Applicative hiding (command, footer, header, str)
 import           RIO hiding (Handler, local, on)
@@ -36,7 +36,7 @@ main = execParser opts >>= env >>= \case
       (L.list TXList mempty 1)
       ""
       (focusRing [minBound ..])
-      (replForm e . REPL (unsafeChainId 0) Local (TxData Null) . fromJust $ code "(+ 1 1)") []
+      (replForm e . REPL (ChainId 0) Local (TxData Null) . fromJust $ code "(+ 1 1)") []
       Nothing
 
     opts :: ParserInfo Args

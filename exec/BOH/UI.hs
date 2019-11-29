@@ -25,9 +25,6 @@ import qualified Brick.Widgets.Border as B
 import qualified Brick.Widgets.Center as C
 import qualified Brick.Widgets.Edit as E
 import qualified Brick.Widgets.List as L
-import           Chainweb.Utils (fromText, toText)
-import           Chainweb.Version
-    (ChainId, chainIdFromText, chainIdInt, chainIds)
 import           Control.Error.Util (hoistMaybe, hush)
 import           Control.Monad.Trans.Maybe (MaybeT(..), runMaybeT)
 import           Data.Aeson (Value(..), decodeStrict', encode)
@@ -38,6 +35,7 @@ import           Data.Generics.Sum.Constructors (_Ctor)
 import           Data.Generics.Wrapped (_Unwrapped)
 import qualified Graphics.Vty as V
 import           Holding
+import           Holding.Chainweb
 import           Lens.Micro
 import           Lens.Micro.Extras (preview)
 import           RIO hiding (local, on)
@@ -120,7 +118,7 @@ draw e w = dispatch <> [ui]
       [ C.hCenter . padBottom (Pad 1) $ txt "The Bag of Holding - A Chainweb Wallet"
       , txt "Author:   Colin Woodbury"
       , txt "Issues:   " <+> hyperlink url (txt url)
-      , txt $ "Chainweb: " <> toText (verOf e)
+      , txt $ "Chainweb: " <> vText (verOf e)
       , txt $ "Account:  " <> (accOf e ^. _Unwrapped)
       , padTop (Pad 1) $ txt "A note on endpoints:"
       , txt "LOCAL: Transaction is 'free', but results aren't"
@@ -142,7 +140,7 @@ draw e w = dispatch <> [ui]
 
         f :: (ChainId, Maybe Double) -> Widget Name
         f (cid, md) = hBox
-          [ txt "Chain ", txt (toText cid), txt " => "
+          [ txt "Chain ", txt (chainIdToText cid), txt " => "
           , str $ maybe "Balance check failed." show md ]
 
     signing :: Widget Name
@@ -170,7 +168,7 @@ draw e w = dispatch <> [ui]
     txListItem :: TX -> Widget Name
     txListItem (TX (REPL cid ep _ pc) eef) = vLimit 1 $ hBox
       [ hLimit 1 $ txt icon
-      , padLeft (Pad 2) . str $ printf "%02d" (chainIdInt cid :: Int)
+      , padLeft (Pad 2) . str . printf "%02d" $ chainIdInt cid
       , padLeft (Pad 2) $ txt end
       , padLeft (Pad 2) . txt $ prettyCode pc
       , fill ' ' ]
@@ -206,7 +204,7 @@ footer t = vLimit 1 $ txt (T.take 10 t) <+> C.hCenter legend
 replForm :: Env -> REPL -> Form REPL e Name
 replForm e = newForm
   [ label "Chain" @@= editField (field @"rcid") ReplChain Nothing
-    toText goodChain (txt . T.unlines) id
+    chainIdToText goodChain (txt . T.unlines) id
   , label "Endpoint" @@= radioField (field @"re")
     [(Local, ReplLocal, "Local"), (Send, ReplSend, "Send")]
   , label "TX Data" @@= editField (field @"dat") ReplData Nothing
@@ -267,7 +265,7 @@ signEvent e w (VtyEvent ve) = case ve of
       m  <- meta (accOf e) cid
       -- TODO This should return the data that they gave, not `Null`!
       tx <- view command <$> transaction (verOf e) (TxData Null) c (keysOf e) m
-      atomically $ putTMVar (respOf e) (Just . Signed tx $ toText cid)
+      atomically $ putTMVar (respOf e) (Just . Signed tx $ chainIdToText cid)
     continue $ w & field @"focOf" %~ focusSetCurrent TXList
                  & field @"reqOf" .~ Nothing
     where
@@ -275,7 +273,7 @@ signEvent e w (VtyEvent ve) = case ve of
       codeAndChain = do
         sr  <- reqOf w
         c   <- code $ _signReq_code sr
-        cid <- _signReq_chainId sr >>= fromText
+        cid <- _signReq_chainId sr >>= chainIdFromText
         pure (c, cid)
 
   _ -> continue w

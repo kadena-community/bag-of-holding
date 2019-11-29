@@ -39,7 +39,10 @@ common commons
 library
   import:          commons
   hs-source-dirs:  lib
-  exposed-modules: Holding
+  exposed-modules:
+    Holding
+    Holding.Chainweb
+
   build-depends:
     , prettyprinter  ^>=1.2
     , servant        ^>=0.16

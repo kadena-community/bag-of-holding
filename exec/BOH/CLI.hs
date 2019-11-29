@@ -9,11 +9,11 @@ module BOH.CLI
 import           BOH.Signing (SignReq, Signed)
 import           Brick.BChan (BChan, newBChan)
 import           Chainweb.HostAddress (HostAddress, hostAddressToBaseUrl)
-import           Chainweb.Utils (textOption, toText)
-import           Chainweb.Version (ChainwebVersion(..))
-import           Control.Error.Util ((!?))
+import           Chainweb.Utils (textOption)
+import           Control.Error.Util (note, (!?))
 import           Control.Monad.Trans.Except (runExceptT)
 import           Holding
+import           Holding.Chainweb
 import           Network.HTTP.Client (newManager)
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Options.Applicative hiding (command, footer, header, str)
@@ -34,12 +34,15 @@ pArgs = Args
   <*> pUrl
 
 pVersion :: Parser ChainwebVersion
-pVersion = textOption
+pVersion = option p
     (long "version" <> metavar "VERSION" <> value defv
-     <> help ("Chainweb Network Version (default: " <> T.unpack (toText defv) <> ")"))
+     <> help ("Chainweb Network Version (default: " <> T.unpack (vText defv) <> ")"))
   where
+    p :: ReadM ChainwebVersion
+    p = eitherReader (\v -> note ("Invalid Chainweb Version given: " <> v) $ verP v)
+
     defv :: ChainwebVersion
-    defv = Mainnet01
+    defv = Mainnet
 
 pUrl :: Parser BaseUrl
 pUrl = hostAddressToBaseUrl Https <$> host

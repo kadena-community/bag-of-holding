@@ -1,7 +1,7 @@
 {-# LANGUAGE DataKinds                  #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DerivingStrategies         #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeOperators              #-}
@@ -49,18 +49,16 @@ module Holding
   , cute
   ) where
 
-import           Chainweb.Pact.RestAPI (pactApi)
-import           Chainweb.Version
 import           Control.Error.Util (hush)
 import           Data.Aeson
 import           Data.Aeson.Types (prependFailure, typeMismatch)
 import           Data.Generics.Sum.Constructors (_Ctor)
 import           Data.Generics.Wrapped (_Unwrapped)
-import           Data.Singletons
 import           Data.Text.Prettyprint.Doc (defaultLayoutOptions, layoutPretty)
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
 import           Data.Yaml.Pretty (defConfig, encodePretty)
+import           Holding.Chainweb
 import           Lens.Micro (SimpleFold, Traversal', _Right)
 import qualified Pact.ApiReq as P
 import qualified Pact.Compile as P
@@ -181,7 +179,7 @@ transaction v (TxData td) (PactCode pc) (Keys ks) pm =
   Transaction <$> P.mkExec (T.unpack pc) td pm [(ks, mempty)] nid Nothing
   where
     nid :: Maybe P.NetworkId
-    nid = Just . P.NetworkId $ chainwebVersionToText v
+    nid = Just . P.NetworkId $ vText v
 
 newtype TxData = TxData Value deriving newtype (ToJSON, FromJSON)
 
@@ -271,8 +269,8 @@ clients
   :<|> (P.Poll -> ClientM P.PollResponses)
   :<|> (P.ListenerRequest -> ClientM P.ListenResponse)
   :<|> (P.Command Text -> ClientM (P.CommandResult P.Hash))
-clients (FromSing (SChainwebVersion :: Sing v)) (FromSing (SChainId :: Sing cid)) =
-  client (pactApi @v @cid)
+clients _ _ = undefined
+  -- client (pactApi @v @cid)
 
 --------------------------------------------------------------------------------
 -- Coin Contract Functions
