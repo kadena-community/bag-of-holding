@@ -35,13 +35,16 @@ pArgs = Args
 pVersion :: Parser ChainwebVersion
 pVersion = option p
     (long "version" <> metavar "VERSION" <> value defv
-     <> help ("Chainweb Network Version (default: " <> T.unpack (vText defv) <> ")"))
+     <> help ("Chainweb Network Version (default: " <> asT <> ")"))
   where
     p :: ReadM ChainwebVersion
-    p = eitherReader (\v -> note ("Invalid Chainweb Version given: " <> v) $ verP v)
+    p = eitherReader (\v -> note ("Unknown version given: " <> v) $ chainwebVersionFromText v)
 
     defv :: ChainwebVersion
     defv = Mainnet
+
+    asT :: String
+    asT = T.unpack $ chainwebVersionToText defv
 
 pUrl :: Parser BaseUrl
 pUrl = option (eitherReader pBaseUrl)

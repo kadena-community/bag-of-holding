@@ -118,7 +118,7 @@ draw e w = dispatch <> [ui]
       [ C.hCenter . padBottom (Pad 1) $ txt "The Bag of Holding - A Chainweb Wallet"
       , txt "Author:   Colin Woodbury"
       , txt "Issues:   " <+> hyperlink url (txt url)
-      , txt $ "Chainweb: " <> vText (verOf e)
+      , txt $ "Chainweb: " <> chainwebVersionToText (verOf e)
       , txt $ "Account:  " <> (accOf e ^. _Unwrapped)
       , padTop (Pad 1) $ txt "A note on endpoints:"
       , txt "LOCAL: Transaction is 'free', but results aren't"

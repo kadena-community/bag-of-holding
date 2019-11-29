@@ -15,7 +15,7 @@
 module Holding.Chainweb
   ( -- * ChainwebVersion
     ChainwebVersion(..)
-  , vText, verP
+  , chainwebVersionToText, chainwebVersionFromText
     -- * ChainId
   , ChainId(..)
   , chainIdToText, chainIdFromText
@@ -32,20 +32,20 @@ import           Servant.API
 data ChainwebVersion = Testnet | Mainnet
 
 instance ToHttpApiData ChainwebVersion where
-  toUrlPiece = vText
+  toUrlPiece = chainwebVersionToText
 
 chainIds :: ChainwebVersion -> HashSet ChainId
 chainIds Testnet = HS.fromList [0 .. 9]
 chainIds Mainnet = HS.fromList [0 .. 9]
 
-vText :: ChainwebVersion -> Text
-vText Testnet = "testnet03"
-vText Mainnet = "mainnet01"
+chainwebVersionToText :: ChainwebVersion -> Text
+chainwebVersionToText Testnet = "testnet03"
+chainwebVersionToText Mainnet = "mainnet01"
 
-verP :: String -> Maybe ChainwebVersion
-verP "testnet03" = Just Testnet
-verP "mainnet01" = Just Mainnet
-verP _           = Nothing
+chainwebVersionFromText :: String -> Maybe ChainwebVersion
+chainwebVersionFromText "testnet03" = Just Testnet
+chainwebVersionFromText "mainnet01" = Just Mainnet
+chainwebVersionFromText _           = Nothing
 
 newtype ChainId = ChainId { chainIdInt :: Word }
   deriving stock (Eq, Ord)
