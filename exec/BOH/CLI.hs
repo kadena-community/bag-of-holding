@@ -43,11 +43,11 @@ pVersion = option p
     defv = Mainnet
 
 pUrl :: Parser BaseUrl
-pUrl = hostAddressToBaseUrl <$> host
+pUrl = option (eitherReader pBaseUrl)
+  (long "node" <> metavar "HOSTNAME:PORT" <> help "Node to send TXs")
   where
-    host :: Parser HostAddress
-    host = option (eitherReader (note "Invalid host" . hostAddressP))
-      (long "node" <> metavar "HOSTNAME:PORT" <> help "Node to send TXs")
+    pBaseUrl :: String -> Either String BaseUrl
+    pBaseUrl = undefined
 
 -- | The immutable runtime environment.
 data Env = Env
