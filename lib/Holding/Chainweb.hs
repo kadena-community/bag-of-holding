@@ -39,11 +39,11 @@ chainIds Testnet = HS.fromList [0 .. 9]
 chainIds Mainnet = HS.fromList [0 .. 9]
 
 chainwebVersionToText :: ChainwebVersion -> Text
-chainwebVersionToText Testnet = "testnet03"
+chainwebVersionToText Testnet = "testnet04"
 chainwebVersionToText Mainnet = "mainnet01"
 
 chainwebVersionFromText :: String -> Maybe ChainwebVersion
-chainwebVersionFromText "testnet03" = Just Testnet
+chainwebVersionFromText "testnet04" = Just Testnet
 chainwebVersionFromText "mainnet01" = Just Mainnet
 chainwebVersionFromText _           = Nothing
 
