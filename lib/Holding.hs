@@ -196,8 +196,8 @@ meta :: Account -> ChainId -> IO P.PublicMeta
 meta (Account t) c = P.PublicMeta c' t gl gp (P.TTLSeconds 3600) <$> txTime
   where
     c' = P.ChainId $ chainIdToText c
-    gl = P.GasLimit 1000
-    gp = P.GasPrice 0.00000001
+    gl = P.GasLimit 600
+    gp = P.GasPrice 0.00001
 
 txTime :: IO P.TxCreationTime
 txTime = fromInteger . round <$> getPOSIXTime
