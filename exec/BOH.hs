@@ -36,7 +36,9 @@ main = execParser opts >>= env >>= \case
       (L.list TXList mempty 1)
       ""
       (focusRing [minBound ..])
-      (replForm e . REPL (ChainId 0) Local (TxData Null) . fromJust $ code "(+ 1 1)") []
+      (replForm e . REPL (ChainId 0) Local (TxData Null) . fromJust $ code "(+ 1 1)")
+      (transferForm e $ Trans (ChainId 0) "" 0)
+      []
       Nothing
 
     opts :: ParserInfo Args

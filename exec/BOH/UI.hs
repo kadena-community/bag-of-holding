@@ -9,10 +9,12 @@ module BOH.UI
     Wallet(..)
   , Name(TXList)
   , REPL(..)
+  , Trans(..)
   , Endpoint(Local)
     -- * UI
   , app
   , replForm
+  , transferForm
   ) where
 
 import           BOH.CLI (Env(..))
@@ -49,7 +51,8 @@ import           Servant.Client
 import           Text.Pretty.Simple (pShowNoColor)
 import           Text.Printf (printf)
 
----
+--------------------------------------------------------------------------------
+-- Types
 
 type Listo = L.GenericList Name Seq TX
 
@@ -57,32 +60,42 @@ data TX = TX REPL (Either ClientError From)
   deriving stock (Generic)
 
 data Wallet = Wallet
-  { txsOf  :: !Listo
-  , logOf  :: !Text
-  , focOf  :: !(FocusRing Name)
-  , replOf :: !(Form REPL SignReq Name)
-  , balsOf :: [(ChainId, Maybe Double)]
-  , reqOf  :: Maybe SignReq }
+  { txsOf   :: !Listo
+  , logOf   :: !Text
+  , focOf   :: !(FocusRing Name)
+  , replOf  :: !(Form REPL SignReq Name)
+  , transOf :: !(Form Trans SignReq Name)
+  , balsOf  :: [(ChainId, Maybe Double)]
+  , reqOf   :: Maybe SignReq }
   deriving stock (Generic)
 
-data From = R Receipt | T TXResult deriving (Generic)
+data From = R Receipt | T TXResult deriving stock (Generic)
 
-data Endpoint = Local | Send deriving (Eq)
+data Endpoint = Local | Send deriving stock (Eq)
 
 data REPL = REPL { rcid :: !ChainId, re :: !Endpoint, dat :: !TxData, rpc :: !PactCode }
   deriving stock (Generic)
 
+data Trans = Trans { tcid :: !ChainId, receiver :: !Text, amount :: !Double }
+  deriving stock (Generic)
+
 -- | Resource names.
-data Name = TXList | ReplChain | ReplLocal | ReplSend | ReplData | ReplCode
+data Name = TXList
+  | ReplChain | ReplLocal | ReplSend | ReplData | ReplCode
+  | Transfer | TransferChain
   | Help | Balances | Sign
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
+--------------------------------------------------------------------------------
+-- Rendering
+
 app :: Env -> App Wallet SignReq Name
-app e = App { appDraw = draw e
-            , appChooseCursor = focusRingCursor focOf
-            , appHandleEvent = event e
-            , appStartEvent = pure
-            , appAttrMap = const $ A.attrMap V.defAttr attrs }
+app e = App
+  { appDraw = draw e
+  , appChooseCursor = focusRingCursor focOf
+  , appHandleEvent = event e
+  , appStartEvent = pure
+  , appAttrMap = const $ A.attrMap V.defAttr attrs }
   where
     attrs :: [(AttrName, V.Attr)]
     attrs = [ -- (L.listAttr,         V.white `on` V.blue)
@@ -104,6 +117,7 @@ draw e w = dispatch <> [ui]
       Just Help     -> [he1p]
       Just Balances -> [balances]
       Just Sign     -> [signing]
+      Just Transfer -> [transfr]
       _             -> []
 
     repl :: Widget Name
@@ -147,7 +161,7 @@ draw e w = dispatch <> [ui]
     signing = C.centerLayer . vLimit 12 . hLimitPercent 50
       . B.borderWithLabel (txt " Transaction Signing ") $ vBox $
       maybe [] reqContents (reqOf w) <>
-      [ C.hCenter . padTop (Pad 1) $ txt "[ESC] [Enter]" ]
+      [ C.hCenter . padTop (Pad 1) $ txt "[Esc] [Enter]" ]
       where
         reqContents :: SignReq -> [Widget Name]
         reqContents sr =
@@ -156,6 +170,11 @@ draw e w = dispatch <> [ui]
           , txt $ "Sender: " <> fromMaybe "Unknown" (_signReq_sender sr)
           , txt $ "Gas:    " <> maybe "Unknown" tshow (_signReq_gasLimit sr)
           , C.hCenter . padTop (Pad 1) $ txt "Sign this Transaction?" ]
+
+    transfr :: Widget Name
+    transfr = C.centerLayer . vLimit 12 . hLimitPercent 50
+      . B.borderWithLabel (txt " Transfer Coins ")
+      $ renderForm (transOf w) <=> C.hCenter (txt "[Esc] [Enter]")
 
     -- TODO Consider `round` border style.
     left :: Widget Name
@@ -199,12 +218,12 @@ header = vLimit 1 . C.center $ txt " The Bag of Holding "
 footer :: Text -> Widget a
 footer t = vLimit 1 $ txt (T.take 10 t) <+> C.hCenter legend
   where
-    legend = txt "[T]ransaction - [B]alances - [H]elp - [Q]uit"
+    legend = txt "[P]act Transaction - [T]ransfer - [B]alances - [H]elp - [Q]uit"
 
 replForm :: Env -> REPL -> Form REPL e Name
 replForm e = newForm
   [ label "Chain" @@= editField (field @"rcid") ReplChain Nothing
-    chainIdToText goodChain (txt . T.unlines) id
+    chainIdToText (goodChain e) (txt . T.unlines) id
   , label "Endpoint" @@= radioField (field @"re")
     [(Local, ReplLocal, "Local"), (Send, ReplSend, "Send")]
   , label "TX Data" @@= editField (field @"dat") ReplData Nothing
@@ -213,15 +232,25 @@ replForm e = newForm
     prettyCode (code . T.unlines) (txt . T.unlines) id
   ]
   where
-    label :: Text -> Widget Name -> Widget Name
-    label t w = padBottom (Pad 1) $ vLimit 1 (hLimit 15 $ txt t <+> fill ' ') <+> w
 
-    -- | Requires that the specified `ChainId` be a valid member of the Chain
-    -- Graph of the current `ChainwebVersion`.
-    goodChain :: [Text] -> Maybe ChainId
-    goodChain ts = do
-      cid <- chainIdFromText $ T.unlines ts
-      bool Nothing (Just cid) . HS.member cid . chainIds $ verOf e
+transferForm :: Env -> Trans -> Form Trans e Name
+transferForm e = newForm
+  [ label "Chain" @@= editField (field @"tcid") TransferChain Nothing
+    chainIdToText (goodChain e) (txt . T.unlines) id
+  ]
+
+label :: Text -> Widget Name -> Widget Name
+label t w = padBottom (Pad 1) $ vLimit 1 (hLimit 15 $ txt t <+> fill ' ') <+> w
+
+-- | Requires that the specified `ChainId` be a valid member of the Chain
+-- Graph of the current `ChainwebVersion`.
+goodChain :: Env -> [Text] -> Maybe ChainId
+goodChain e ts = do
+  cid <- chainIdFromText $ T.unlines ts
+  bool Nothing (Just cid) . HS.member cid . chainIds $ verOf e
+
+--------------------------------------------------------------------------------
+-- Event Handling
 
 event :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
 event e w be = case focusGetCurrent $ focOf w of
@@ -230,7 +259,9 @@ event e w be = case focusGetCurrent $ focOf w of
   Just Help     -> simplePage w be
   Just Balances -> simplePage w be
   Just Sign     -> signEvent e w be
-  Just _        -> replEvent e w be
+  Just ReplCode -> replEvent e w be
+  Just Transfer -> transferEvent e w be
+  Just _        -> continue w
 
 replEvent :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
 replEvent e w ev@(VtyEvent ve) = case ve of
@@ -251,6 +282,18 @@ replEvent e w ev@(VtyEvent ve) = case ve of
 replEvent _ w (AppEvent sr) = continue $ w & field @"reqOf" ?~ sr
                                            & field @"focOf" %~ focusSetCurrent Sign
 replEvent _ w _ = continue w
+
+transferEvent :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
+transferEvent e w ev@(VtyEvent ve) = case ve of
+  -- Close Popup --
+  V.EvKey V.KEsc [] -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
+
+  -- Field Input --
+  _ -> handleFormEventL (field @"transOf") w ev >>= continue
+
+transferEvent _ w (AppEvent sr) = continue $ w & field @"reqOf" ?~ sr
+                                               & field @"focOf" %~ focusSetCurrent Sign
+transferEvent _ w _ = continue w
 
 signEvent :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
 signEvent e w (VtyEvent ve) = case ve of
@@ -293,7 +336,10 @@ mainEvent e w (VtyEvent ve) = case ve of
   V.EvKey (V.KChar 'q') [] -> halt w
 
   -- Transaction Form --
-  V.EvKey (V.KChar 't') [] -> continue (w & field @"focOf" %~ focusSetCurrent ReplCode)
+  V.EvKey (V.KChar 'p') [] -> continue (w & field @"focOf" %~ focusSetCurrent ReplCode)
+
+  -- Transfer Wizard --
+  V.EvKey (V.KChar 't') [] -> continue (w & field @"focOf" %~ focusSetCurrent Transfer)
 
   -- Balance Check --
   V.EvKey (V.KChar 'b') [] -> do
