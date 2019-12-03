@@ -322,7 +322,7 @@ send' :<|> poll' :<|> listen' :<|> local' = client (Proxy @PactAPI)
 newtype Sender = Sender Account
 
 -- | The receiver `Account` in a coin transfer.
-newtype Receiver = Receiver Account
+newtype Receiver = Receiver Account deriving stock (Generic)
 
 -- | The @coin.get-balance@ function.
 balance :: Account -> Maybe PactCode

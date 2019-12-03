@@ -37,7 +37,7 @@ main = execParser opts >>= env >>= \case
       ""
       (focusRing [minBound ..])
       (replForm e . REPL (ChainId 0) Local (TxData Null) . fromJust $ code "(+ 1 1)")
-      (transferForm e $ Trans (ChainId 0) "" 0 False)
+      (transferForm e $ Trans (ChainId 0) (Receiver $ Account "") 0 False)
       []
       Nothing
 

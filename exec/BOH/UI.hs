@@ -78,7 +78,11 @@ data Endpoint = Local | Send deriving stock (Eq)
 data REPL = REPL { rcid :: !ChainId, re :: !Endpoint, dat :: !TxData, rpc :: !PactCode }
   deriving stock (Generic)
 
-data Trans = Trans { tcid :: !ChainId, receiver :: !Text, amount :: !Double, confirm :: Bool }
+data Trans = Trans
+  { tcid     :: !ChainId
+  , receiver :: !Receiver
+  , amount   :: !Double
+  , confirm  :: Bool }
   deriving stock (Generic)
 
 -- | Resource names.
@@ -233,14 +237,13 @@ replForm e = newForm
   , label "Pact Code" @@= editField (field @"rpc") ReplCode Nothing
     prettyCode (code . T.unlines) (txt . T.unlines) id
   ]
-  where
 
 transferForm :: Env -> Trans -> Form Trans e Name
 transferForm e = newForm
   [ label "Chain" @@= editField (field @"tcid") TransferChain Nothing
     chainIdToText (goodChain e) (txt . T.unlines) id
   , label "Receiver" @@= editField (field @"receiver") TransferReceiver Nothing
-    id goodAccount (txt . T.unlines) id
+    (^. _Unwrapped . _Unwrapped) (fmap Receiver . goodAccount) (txt . T.unlines) id
   , label "Amount" @@= editField (field @"amount") TransferAmount Nothing
     tshow goodAmount (txt . T.unlines) id
   , label "Confirm?" @@= checkboxField (field @"confirm") TransferConfirm
@@ -259,10 +262,10 @@ goodChain e (t:_) = do
   bool Nothing (Just cid) . HS.member cid . chainIds $ verOf e
 
 -- | With constraints as defined in the Coin Contract.
-goodAccount :: [Text] -> Maybe Text
+goodAccount :: [Text] -> Maybe Account
 goodAccount [] = Nothing
 goodAccount (a:_)
-  | len >= 3 && len <= 256 && T.all isLatin1 a = Just a
+  | len >= 3 && len <= 256 && T.all isLatin1 a = Just $ Account a
   | otherwise = Nothing
   where
     len = T.length a
@@ -311,6 +314,17 @@ transferEvent :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next W
 transferEvent e w ev@(VtyEvent ve) = case ve of
   -- Close Popup --
   V.EvKey V.KEsc [] -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
+
+  -- Submission --
+  V.EvKey V.KEnter []
+    | not . confirm . formState $ transOf w -> continue w
+    | not (allFieldsValid $ transOf w) -> continue w
+    | otherwise -> case tToR e . formState $ transOf w of
+        Nothing -> continue w  -- TODO Warn somewhere?
+        Just r  -> do
+          t <- liftIO $ call e r
+          continue $ w & field @"focOf" %~ focusSetCurrent TXList
+                       & field @"txsOf" %~ (L.listMoveTo 0 . L.listInsert 0 t)
 
   -- Field Input --
   _ -> handleFormEventL (field @"transOf") w ev >>= continue
@@ -419,3 +433,7 @@ call e r@(REPL cid ep td c) = do
     f = case ep of
           Local -> fmap T . local (verOf e) cid
           Send  -> fmap R . send (verOf e) cid
+
+tToR :: Env -> Trans -> Maybe REPL
+tToR e (Trans cid rcv amt _) =
+  REPL cid Send (TxData Null) <$> transfer (Sender $ accOf e) rcv amt
