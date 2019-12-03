@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds          #-}
 {-# LANGUAGE DeriveGeneric      #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE RankNTypes         #-}
 {-# LANGUAGE TypeApplications   #-}
 
@@ -42,6 +43,7 @@ import           Lens.Micro
 import           Lens.Micro.Extras (preview)
 import           RIO hiding (local, on)
 import qualified RIO.ByteString.Lazy as BL
+import           RIO.Char (isLatin1)
 import qualified RIO.HashSet as HS
 import qualified RIO.List as L
 import qualified RIO.Seq as Seq
@@ -76,13 +78,13 @@ data Endpoint = Local | Send deriving stock (Eq)
 data REPL = REPL { rcid :: !ChainId, re :: !Endpoint, dat :: !TxData, rpc :: !PactCode }
   deriving stock (Generic)
 
-data Trans = Trans { tcid :: !ChainId, receiver :: !Text, amount :: !Double }
+data Trans = Trans { tcid :: !ChainId, receiver :: !Text, amount :: !Double, confirm :: Bool }
   deriving stock (Generic)
 
 -- | Resource names.
 data Name = TXList
   | ReplChain | ReplLocal | ReplSend | ReplData | ReplCode
-  | Transfer | TransferChain
+  | Transfer | TransferChain | TransferReceiver | TransferAmount | TransferConfirm
   | Help | Balances | Sign
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
@@ -172,7 +174,7 @@ draw e w = dispatch <> [ui]
           , C.hCenter . padTop (Pad 1) $ txt "Sign this Transaction?" ]
 
     transfr :: Widget Name
-    transfr = C.centerLayer . vLimit 12 . hLimitPercent 50
+    transfr = C.centerLayer . vLimit 11 . hLimitPercent 50
       . B.borderWithLabel (txt " Transfer Coins ")
       $ renderForm (transOf w) <=> C.hCenter (txt "[Esc] [Enter]")
 
@@ -237,6 +239,12 @@ transferForm :: Env -> Trans -> Form Trans e Name
 transferForm e = newForm
   [ label "Chain" @@= editField (field @"tcid") TransferChain Nothing
     chainIdToText (goodChain e) (txt . T.unlines) id
+  , label "Receiver" @@= editField (field @"receiver") TransferReceiver Nothing
+    id goodAccount (txt . T.unlines) id
+  , label "Amount" @@= editField (field @"amount") TransferAmount Nothing
+    tshow goodAmount (txt . T.unlines) id
+  , label "Confirm?" @@= checkboxField (field @"confirm") TransferConfirm
+    "Gas cost: ~₭0.0056"
   ]
 
 label :: Text -> Widget Name -> Widget Name
@@ -245,9 +253,25 @@ label t w = padBottom (Pad 1) $ vLimit 1 (hLimit 15 $ txt t <+> fill ' ') <+> w
 -- | Requires that the specified `ChainId` be a valid member of the Chain
 -- Graph of the current `ChainwebVersion`.
 goodChain :: Env -> [Text] -> Maybe ChainId
-goodChain e ts = do
-  cid <- chainIdFromText $ T.unlines ts
+goodChain _ [] = Nothing
+goodChain e (t:_) = do
+  cid <- chainIdFromText t
   bool Nothing (Just cid) . HS.member cid . chainIds $ verOf e
+
+-- | With constraints as defined in the Coin Contract.
+goodAccount :: [Text] -> Maybe Text
+goodAccount [] = Nothing
+goodAccount (a:_)
+  | len >= 3 && len <= 256 && T.all isLatin1 a = Just a
+  | otherwise = Nothing
+  where
+    len = T.length a
+
+goodAmount :: [Text] -> Maybe Double
+goodAmount []     = Nothing
+goodAmount (dt:_) = do
+  d <- readMaybe $ T.unpack dt
+  bool Nothing (Just d) $ d >= 0.000_000_000_001
 
 --------------------------------------------------------------------------------
 -- Event Handling
