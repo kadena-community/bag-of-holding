@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns       #-}
 {-# LANGUAGE DataKinds          #-}
 {-# LANGUAGE DeriveGeneric      #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -41,6 +42,7 @@ import           Holding
 import           Holding.Chainweb
 import           Lens.Micro
 import           Lens.Micro.Extras (preview)
+import qualified Pact.Types.Capability as P
 import           RIO hiding (local, on)
 import qualified RIO.ByteString.Lazy as BL
 import           RIO.Char (isLatin1)
@@ -299,7 +301,8 @@ replEvent e w ev@(VtyEvent ve) = case ve of
   V.EvKey V.KEnter []
     | not (allFieldsValid $ replOf w) -> continue w
     | otherwise -> do
-        t <- liftIO . call e . formState $ replOf w
+        -- TODO Handle caps!
+        t <- liftIO . call e [] . formState $ replOf w
         continue $ w & field @"focOf" %~ focusSetCurrent TXList
                      & field @"txsOf" %~ (L.listMoveTo 0 . L.listInsert 0 t)
 
@@ -322,7 +325,9 @@ transferEvent e w ev@(VtyEvent ve) = case ve of
     | otherwise -> case tToR e . formState $ transOf w of
         Nothing -> continue w  -- TODO Warn somewhere?
         Just r  -> do
-          t <- liftIO $ call e r
+          let !tfrm = formState $ transOf w
+              !sndr = Sender $ accOf e
+          t <- liftIO $ call e [gasCap, transferCap sndr (receiver tfrm) (amount tfrm)] r
           continue $ w & field @"focOf" %~ focusSetCurrent TXList
                        & field @"txsOf" %~ (L.listMoveTo 0 . L.listInsert 0 t)
 
@@ -345,7 +350,8 @@ signEvent e w (VtyEvent ve) = case ve of
     liftIO $ for_ codeAndChain $ \(c, cid) -> do
       m  <- meta (accOf e) cid
       -- TODO This should return the data that they gave, not `Null`!
-      tx <- view command <$> transaction (verOf e) (TxData Null) c (keysOf e) m
+      -- TODO Properly handle caps here!
+      tx <- view command <$> transaction (verOf e) (TxData Null) c [] (keysOf e) m
       atomically $ putTMVar (respOf e) (Just . Signed tx $ chainIdToText cid)
     continue $ w & field @"focOf" %~ focusSetCurrent TXList
                  & field @"reqOf" .~ Nothing
@@ -381,7 +387,8 @@ mainEvent e w (VtyEvent ve) = case ve of
 
   -- Balance Check --
   V.EvKey (V.KChar 'b') [] -> do
-    txs <- liftIO $ mapConcurrently (bitraverse pure (traverse (call e))) rs
+    -- TODO Handle caps
+    txs <- liftIO $ mapConcurrently (bitraverse pure (traverse (call e []))) rs
     continue $ w & field @"focOf"  %~ focusSetCurrent Balances
                  & field @"balsOf" .~ map (second ds) txs
     where
@@ -423,10 +430,10 @@ handleFormEventL l s ev = do
 --------------------------------------------------------------------------------
 -- Endpoint Calling
 
-call :: Env -> REPL -> IO TX
-call e r@(REPL cid ep td c) = do
+call :: Env -> [P.SigCapability] -> REPL -> IO TX
+call e caps r@(REPL cid ep td c) = do
   m  <- meta (accOf e) cid
-  tx <- transaction (verOf e) td c (keysOf e) m
+  tx <- transaction (verOf e) td c caps (keysOf e) m
   TX r <$> runClientM (f tx) (clenvOf e)
   where
     f :: Transaction -> ClientM From
