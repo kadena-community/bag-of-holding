@@ -19,6 +19,7 @@ module Holding
   , transaction
   , command
   , TxData(..)
+  , gasCap, transferCap
     -- ** Pact Communication
   , Account(..)
   , meta
@@ -64,6 +65,7 @@ import qualified Pact.ApiReq as P
 import qualified Pact.Compile as P
 import qualified Pact.Parse as P
 import qualified Pact.Types.API as P
+import qualified Pact.Types.Capability as P
 import qualified Pact.Types.Command as P
 import qualified Pact.Types.Crypto as P
 import qualified Pact.Types.Hash as P
@@ -87,7 +89,6 @@ DO:
 - [ ] Allow simple transfers, cross-chain transfers, and balance checks (single-sig only).
 - [x] Manage active `RequestKeys` in a sane way.
 - [x] Allow short, custom TXs to be written.
-- [ ] Track health of the bootstrap nodes.
 - [x] Pretty-print the results of TXs.
 - [x] Show a history of recent TXs.
 - [x] LISTEN ON PORT 9467 FOR SIGNING TXS IN DAPPS! HAVE MANUAL CONFIRMATION WITHIN WALLET!
@@ -174,14 +175,32 @@ command = to cmdt
 
 -- | Form some parsed `PactCode` into a `Transaction` that's sendable to a running
 -- Chainweb instance.
-transaction :: ChainwebVersion -> TxData -> PactCode -> Keys -> P.PublicMeta -> IO Transaction
-transaction v (TxData td) (PactCode pc) (Keys ks) pm =
-  Transaction <$> P.mkExec (T.unpack pc) td pm [(ks, mempty)] nid Nothing
+transaction
+  :: ChainwebVersion
+  -> TxData
+  -> PactCode
+  -> [P.SigCapability]
+  -> Keys
+  -> P.PublicMeta
+  -> IO Transaction
+transaction v (TxData td) (PactCode pc) caps (Keys ks) pm =
+  Transaction <$> P.mkExec (T.unpack pc) td pm [(ks, caps)] nid Nothing
   where
     nid :: Maybe P.NetworkId
     nid = Just . P.NetworkId $ chainwebVersionToText v
 
 newtype TxData = TxData Value deriving newtype (ToJSON, FromJSON)
+
+gasCap :: P.SigCapability
+gasCap = P.SigCapability (P.QualifiedName "coin" "GAS" (P.mkInfo "coin.GAS")) []
+
+-- TODO Newtype the decimal value.
+transferCap :: Sender -> Receiver -> Double -> P.SigCapability
+transferCap (Sender (Account s)) (Receiver (Account r)) m =
+  P.SigCapability (P.QualifiedName "coin" "TRANSFER" (P.mkInfo "coin.TRANSFER"))
+  [ P.PLiteral $ P.LString s
+  , P.PLiteral $ P.LString r
+  , P.PLiteral $ P.LDecimal $ realToFrac m ]
 
 --------------------------------------------------------------------------------
 -- Pact Communication
@@ -322,7 +341,7 @@ send' :<|> poll' :<|> listen' :<|> local' = client (Proxy @PactAPI)
 newtype Sender = Sender Account
 
 -- | The receiver `Account` in a coin transfer.
-newtype Receiver = Receiver Account
+newtype Receiver = Receiver Account deriving stock (Generic)
 
 -- | The @coin.get-balance@ function.
 balance :: Account -> Maybe PactCode

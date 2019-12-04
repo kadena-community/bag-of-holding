@@ -1,6 +1,8 @@
+{-# LANGUAGE BangPatterns       #-}
 {-# LANGUAGE DataKinds          #-}
 {-# LANGUAGE DeriveGeneric      #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE RankNTypes         #-}
 {-# LANGUAGE TypeApplications   #-}
 
@@ -9,10 +11,12 @@ module BOH.UI
     Wallet(..)
   , Name(TXList)
   , REPL(..)
+  , Trans(..)
   , Endpoint(Local)
     -- * UI
   , app
   , replForm
+  , transferForm
   ) where
 
 import           BOH.CLI (Env(..))
@@ -38,8 +42,10 @@ import           Holding
 import           Holding.Chainweb
 import           Lens.Micro
 import           Lens.Micro.Extras (preview)
+import qualified Pact.Types.Capability as P
 import           RIO hiding (local, on)
 import qualified RIO.ByteString.Lazy as BL
+import           RIO.Char (isLatin1)
 import qualified RIO.HashSet as HS
 import qualified RIO.List as L
 import qualified RIO.Seq as Seq
@@ -49,7 +55,8 @@ import           Servant.Client
 import           Text.Pretty.Simple (pShowNoColor)
 import           Text.Printf (printf)
 
----
+--------------------------------------------------------------------------------
+-- Types
 
 type Listo = L.GenericList Name Seq TX
 
@@ -57,32 +64,46 @@ data TX = TX REPL (Either ClientError From)
   deriving stock (Generic)
 
 data Wallet = Wallet
-  { txsOf  :: !Listo
-  , logOf  :: !Text
-  , focOf  :: !(FocusRing Name)
-  , replOf :: !(Form REPL SignReq Name)
-  , balsOf :: [(ChainId, Maybe Double)]
-  , reqOf  :: Maybe SignReq }
+  { txsOf   :: !Listo
+  , logOf   :: !Text
+  , focOf   :: !(FocusRing Name)
+  , replOf  :: !(Form REPL SignReq Name)
+  , transOf :: !(Form Trans SignReq Name)
+  , balsOf  :: [(ChainId, Maybe Double)]
+  , reqOf   :: Maybe SignReq }
   deriving stock (Generic)
 
-data From = R Receipt | T TXResult deriving (Generic)
+data From = R Receipt | T TXResult deriving stock (Generic)
 
-data Endpoint = Local | Send deriving (Eq)
+data Endpoint = Local | Send deriving stock (Eq)
 
 data REPL = REPL { rcid :: !ChainId, re :: !Endpoint, dat :: !TxData, rpc :: !PactCode }
   deriving stock (Generic)
 
+data Trans = Trans
+  { tcid     :: !ChainId
+  , receiver :: !Receiver
+  , amount   :: !Double
+  , confirm  :: Bool }
+  deriving stock (Generic)
+
 -- | Resource names.
-data Name = TXList | ReplChain | ReplLocal | ReplSend | ReplData | ReplCode
+data Name = TXList
+  | ReplChain | ReplLocal | ReplSend | ReplData | ReplCode
+  | Transfer | TransferChain | TransferReceiver | TransferAmount | TransferConfirm
   | Help | Balances | Sign
   deriving stock (Eq, Ord, Show, Enum, Bounded)
 
+--------------------------------------------------------------------------------
+-- Rendering
+
 app :: Env -> App Wallet SignReq Name
-app e = App { appDraw = draw e
-            , appChooseCursor = focusRingCursor focOf
-            , appHandleEvent = event e
-            , appStartEvent = pure
-            , appAttrMap = const $ A.attrMap V.defAttr attrs }
+app e = App
+  { appDraw = draw e
+  , appChooseCursor = focusRingCursor focOf
+  , appHandleEvent = event e
+  , appStartEvent = pure
+  , appAttrMap = const $ A.attrMap V.defAttr attrs }
   where
     attrs :: [(AttrName, V.Attr)]
     attrs = [ -- (L.listAttr,         V.white `on` V.blue)
@@ -104,6 +125,7 @@ draw e w = dispatch <> [ui]
       Just Help     -> [he1p]
       Just Balances -> [balances]
       Just Sign     -> [signing]
+      Just Transfer -> [transfr]
       _             -> []
 
     repl :: Widget Name
@@ -147,7 +169,7 @@ draw e w = dispatch <> [ui]
     signing = C.centerLayer . vLimit 12 . hLimitPercent 50
       . B.borderWithLabel (txt " Transaction Signing ") $ vBox $
       maybe [] reqContents (reqOf w) <>
-      [ C.hCenter . padTop (Pad 1) $ txt "[ESC] [Enter]" ]
+      [ C.hCenter . padTop (Pad 1) $ txt "[Esc] [Enter]" ]
       where
         reqContents :: SignReq -> [Widget Name]
         reqContents sr =
@@ -156,6 +178,11 @@ draw e w = dispatch <> [ui]
           , txt $ "Sender: " <> fromMaybe "Unknown" (_signReq_sender sr)
           , txt $ "Gas:    " <> maybe "Unknown" tshow (_signReq_gasLimit sr)
           , C.hCenter . padTop (Pad 1) $ txt "Sign this Transaction?" ]
+
+    transfr :: Widget Name
+    transfr = C.centerLayer . vLimit 11 . hLimitPercent 50
+      . B.borderWithLabel (txt " Transfer Coins ")
+      $ renderForm (transOf w) <=> C.hCenter (txt "[Esc] [Enter]")
 
     -- TODO Consider `round` border style.
     left :: Widget Name
@@ -199,12 +226,12 @@ header = vLimit 1 . C.center $ txt " The Bag of Holding "
 footer :: Text -> Widget a
 footer t = vLimit 1 $ txt (T.take 10 t) <+> C.hCenter legend
   where
-    legend = txt "[T]ransaction - [B]alances - [H]elp - [Q]uit"
+    legend = txt "[P]act Transaction - [T]ransfer - [B]alances - [H]elp - [Q]uit"
 
 replForm :: Env -> REPL -> Form REPL e Name
 replForm e = newForm
   [ label "Chain" @@= editField (field @"rcid") ReplChain Nothing
-    chainIdToText goodChain (txt . T.unlines) id
+    chainIdToText (goodChain e) (txt . T.unlines) id
   , label "Endpoint" @@= radioField (field @"re")
     [(Local, ReplLocal, "Local"), (Send, ReplSend, "Send")]
   , label "TX Data" @@= editField (field @"dat") ReplData Nothing
@@ -212,16 +239,47 @@ replForm e = newForm
   , label "Pact Code" @@= editField (field @"rpc") ReplCode Nothing
     prettyCode (code . T.unlines) (txt . T.unlines) id
   ]
-  where
-    label :: Text -> Widget Name -> Widget Name
-    label t w = padBottom (Pad 1) $ vLimit 1 (hLimit 15 $ txt t <+> fill ' ') <+> w
 
-    -- | Requires that the specified `ChainId` be a valid member of the Chain
-    -- Graph of the current `ChainwebVersion`.
-    goodChain :: [Text] -> Maybe ChainId
-    goodChain ts = do
-      cid <- chainIdFromText $ T.unlines ts
-      bool Nothing (Just cid) . HS.member cid . chainIds $ verOf e
+transferForm :: Env -> Trans -> Form Trans e Name
+transferForm e = newForm
+  [ label "Chain" @@= editField (field @"tcid") TransferChain Nothing
+    chainIdToText (goodChain e) (txt . T.unlines) id
+  , label "Receiver" @@= editField (field @"receiver") TransferReceiver Nothing
+    (^. _Unwrapped . _Unwrapped) (fmap Receiver . goodAccount) (txt . T.unlines) id
+  , label "Amount" @@= editField (field @"amount") TransferAmount Nothing
+    tshow goodAmount (txt . T.unlines) id
+  , label "Confirm?" @@= checkboxField (field @"confirm") TransferConfirm
+    "Gas cost: ~₭0.0056"
+  ]
+
+label :: Text -> Widget Name -> Widget Name
+label t w = padBottom (Pad 1) $ vLimit 1 (hLimit 15 $ txt t <+> fill ' ') <+> w
+
+-- | Requires that the specified `ChainId` be a valid member of the Chain
+-- Graph of the current `ChainwebVersion`.
+goodChain :: Env -> [Text] -> Maybe ChainId
+goodChain _ [] = Nothing
+goodChain e (t:_) = do
+  cid <- chainIdFromText t
+  bool Nothing (Just cid) . HS.member cid . chainIds $ verOf e
+
+-- | With constraints as defined in the Coin Contract.
+goodAccount :: [Text] -> Maybe Account
+goodAccount [] = Nothing
+goodAccount (a:_)
+  | len >= 3 && len <= 256 && T.all isLatin1 a = Just $ Account a
+  | otherwise = Nothing
+  where
+    len = T.length a
+
+goodAmount :: [Text] -> Maybe Double
+goodAmount []     = Nothing
+goodAmount (dt:_) = do
+  d <- readMaybe $ T.unpack dt
+  bool Nothing (Just d) $ d >= 0.000_000_000_001
+
+--------------------------------------------------------------------------------
+-- Event Handling
 
 event :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
 event e w be = case focusGetCurrent $ focOf w of
@@ -230,7 +288,9 @@ event e w be = case focusGetCurrent $ focOf w of
   Just Help     -> simplePage w be
   Just Balances -> simplePage w be
   Just Sign     -> signEvent e w be
-  Just _        -> replEvent e w be
+  Just ReplCode -> replEvent e w be
+  Just Transfer -> transferEvent e w be
+  Just _        -> continue w
 
 replEvent :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
 replEvent e w ev@(VtyEvent ve) = case ve of
@@ -241,7 +301,8 @@ replEvent e w ev@(VtyEvent ve) = case ve of
   V.EvKey V.KEnter []
     | not (allFieldsValid $ replOf w) -> continue w
     | otherwise -> do
-        t <- liftIO . call e . formState $ replOf w
+        -- TODO Handle caps!
+        t <- liftIO . call e [] . formState $ replOf w
         continue $ w & field @"focOf" %~ focusSetCurrent TXList
                      & field @"txsOf" %~ (L.listMoveTo 0 . L.listInsert 0 t)
 
@@ -251,6 +312,31 @@ replEvent e w ev@(VtyEvent ve) = case ve of
 replEvent _ w (AppEvent sr) = continue $ w & field @"reqOf" ?~ sr
                                            & field @"focOf" %~ focusSetCurrent Sign
 replEvent _ w _ = continue w
+
+transferEvent :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
+transferEvent e w ev@(VtyEvent ve) = case ve of
+  -- Close Popup --
+  V.EvKey V.KEsc [] -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
+
+  -- Submission --
+  V.EvKey V.KEnter []
+    | not . confirm . formState $ transOf w -> continue w
+    | not (allFieldsValid $ transOf w) -> continue w
+    | otherwise -> case tToR e . formState $ transOf w of
+        Nothing -> continue w  -- TODO Warn somewhere?
+        Just r  -> do
+          let !tfrm = formState $ transOf w
+              !sndr = Sender $ accOf e
+          t <- liftIO $ call e [gasCap, transferCap sndr (receiver tfrm) (amount tfrm)] r
+          continue $ w & field @"focOf" %~ focusSetCurrent TXList
+                       & field @"txsOf" %~ (L.listMoveTo 0 . L.listInsert 0 t)
+
+  -- Field Input --
+  _ -> handleFormEventL (field @"transOf") w ev >>= continue
+
+transferEvent _ w (AppEvent sr) = continue $ w & field @"reqOf" ?~ sr
+                                               & field @"focOf" %~ focusSetCurrent Sign
+transferEvent _ w _ = continue w
 
 signEvent :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
 signEvent e w (VtyEvent ve) = case ve of
@@ -264,7 +350,8 @@ signEvent e w (VtyEvent ve) = case ve of
     liftIO $ for_ codeAndChain $ \(c, cid) -> do
       m  <- meta (accOf e) cid
       -- TODO This should return the data that they gave, not `Null`!
-      tx <- view command <$> transaction (verOf e) (TxData Null) c (keysOf e) m
+      -- TODO Properly handle caps here!
+      tx <- view command <$> transaction (verOf e) (TxData Null) c [] (keysOf e) m
       atomically $ putTMVar (respOf e) (Just . Signed tx $ chainIdToText cid)
     continue $ w & field @"focOf" %~ focusSetCurrent TXList
                  & field @"reqOf" .~ Nothing
@@ -293,11 +380,15 @@ mainEvent e w (VtyEvent ve) = case ve of
   V.EvKey (V.KChar 'q') [] -> halt w
 
   -- Transaction Form --
-  V.EvKey (V.KChar 't') [] -> continue (w & field @"focOf" %~ focusSetCurrent ReplCode)
+  V.EvKey (V.KChar 'p') [] -> continue (w & field @"focOf" %~ focusSetCurrent ReplCode)
+
+  -- Transfer Wizard --
+  V.EvKey (V.KChar 't') [] -> continue (w & field @"focOf" %~ focusSetCurrent Transfer)
 
   -- Balance Check --
   V.EvKey (V.KChar 'b') [] -> do
-    txs <- liftIO $ mapConcurrently (bitraverse pure (traverse (call e))) rs
+    -- TODO Handle caps
+    txs <- liftIO $ mapConcurrently (bitraverse pure (traverse (call e []))) rs
     continue $ w & field @"focOf"  %~ focusSetCurrent Balances
                  & field @"balsOf" .~ map (second ds) txs
     where
@@ -339,13 +430,17 @@ handleFormEventL l s ev = do
 --------------------------------------------------------------------------------
 -- Endpoint Calling
 
-call :: Env -> REPL -> IO TX
-call e r@(REPL cid ep td c) = do
+call :: Env -> [P.SigCapability] -> REPL -> IO TX
+call e caps r@(REPL cid ep td c) = do
   m  <- meta (accOf e) cid
-  tx <- transaction (verOf e) td c (keysOf e) m
+  tx <- transaction (verOf e) td c caps (keysOf e) m
   TX r <$> runClientM (f tx) (clenvOf e)
   where
     f :: Transaction -> ClientM From
     f = case ep of
           Local -> fmap T . local (verOf e) cid
           Send  -> fmap R . send (verOf e) cid
+
+tToR :: Env -> Trans -> Maybe REPL
+tToR e (Trans cid rcv amt _) =
+  REPL cid Send (TxData Null) <$> transfer (Sender $ accOf e) rcv amt
