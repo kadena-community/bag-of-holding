@@ -248,8 +248,8 @@ newtype TXResult = TXResult { txr :: P.CommandResult P.Hash }
 pactValue :: Traversal' TXResult P.PactValue
 pactValue = _Unwrapped . P.crResult . _Unwrapped . _Right
 
-pactDouble :: SimpleFold TXResult Double
-pactDouble = pactValue . _Ctor @"PLiteral" . _Ctor @"LDecimal" . to realToFrac
+pactDouble :: SimpleFold TXResult Decimal
+pactDouble = pactValue . _Ctor @"PLiteral" . _Ctor @"LDecimal"
 
 --------------------------------------------------------------------------------
 -- Endpoint Calls

@@ -69,7 +69,7 @@ data Wallet = Wallet
   , focOf   :: !(FocusRing Name)
   , replOf  :: !(Form REPL SignReq Name)
   , transOf :: !(Form Trans SignReq Name)
-  , balsOf  :: [(ChainId, Maybe Double)]
+  , balsOf  :: [(ChainId, Maybe KDA)]
   , reqOf   :: Maybe SignReq }
   deriving stock (Generic)
 
@@ -160,7 +160,7 @@ draw e w = dispatch <> [ui]
         total :: Widget w
         total = txt "Total   => " <+> str (show . sum . mapMaybe snd $ balsOf w)
 
-        f :: (ChainId, Maybe Double) -> Widget Name
+        f :: (ChainId, Maybe KDA) -> Widget Name
         f (cid, md) = hBox
           [ txt "Chain ", txt (chainIdToText cid), txt " => "
           , str $ maybe "Balance check failed." show md ]
@@ -393,7 +393,7 @@ mainEvent e w (VtyEvent ve) = case ve of
       cs = L.sort . toList . chainIds $ verOf e
       cd = balance $ accOf e
       rs = map (\cid -> (cid, REPL cid Local (TxData Null) <$> cd)) cs
-      ds = preview (_Just . position @2 . _Right . _Ctor @"T" . pactDouble)
+      ds = preview (_Just . position @2 . _Right . _Ctor @"T" . pactDouble . to kda . _Just)
 
   -- Help Window --
   V.EvKey (V.KChar 'h') [] -> continue (w & field @"focOf" %~ focusSetCurrent Help)
