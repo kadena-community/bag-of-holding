@@ -20,6 +20,8 @@ module Holding
   , command
   , TxData(..)
   , gasCap, transferCap
+  , KDA
+  , kda
     -- ** Pact Communication
   , Account(..)
   , meta
@@ -53,6 +55,7 @@ module Holding
 import           Control.Error.Util (hush)
 import           Data.Aeson
 import           Data.Aeson.Types (prependFailure, typeMismatch)
+import           Data.Decimal (Decimal, decimalPlaces)
 import           Data.Generics.Sum.Constructors (_Ctor)
 import           Data.Generics.Wrapped (_Unwrapped)
 import           Data.Text.Prettyprint.Doc (defaultLayoutOptions, layoutPretty)
@@ -194,13 +197,20 @@ newtype TxData = TxData Value deriving newtype (ToJSON, FromJSON)
 gasCap :: P.SigCapability
 gasCap = P.SigCapability (P.QualifiedName "coin" "GAS" (P.mkInfo "coin.GAS")) []
 
--- TODO Newtype the decimal value.
-transferCap :: Sender -> Receiver -> Double -> P.SigCapability
-transferCap (Sender (Account s)) (Receiver (Account r)) m =
+transferCap :: Sender -> Receiver -> KDA -> P.SigCapability
+transferCap (Sender (Account s)) (Receiver (Account r)) (KDA m) =
   P.SigCapability (P.QualifiedName "coin" "TRANSFER" (P.mkInfo "coin.TRANSFER"))
   [ P.PLiteral $ P.LString s
   , P.PLiteral $ P.LString r
-  , P.PLiteral $ P.LDecimal $ realToFrac m ]
+  , P.PLiteral $ P.LDecimal m ]
+
+-- | Enforces Pact's rounding and truncation rules.
+newtype KDA = KDA Decimal deriving newtype (Show, Read, Num)
+
+-- | Smart constructor for the `KDA` type. This requires there to be no more
+-- than 12 digits after the decimal point.
+kda :: Decimal -> Maybe KDA
+kda d = bool Nothing (Just $ KDA d) $ decimalPlaces d <= 12
 
 --------------------------------------------------------------------------------
 -- Pact Communication
@@ -209,7 +219,6 @@ transferCap (Sender (Account s)) (Receiver (Account r)) m =
 newtype Account = Account Text deriving (Generic)
 
 -- TODO Make the `GasLimit` an argument for the signing API.
--- TODO Come up with a sane default `GasPrice`.
 -- | To feed to the `transaction` function.
 meta :: Account -> ChainId -> IO P.PublicMeta
 meta (Account t) c = P.PublicMeta c' t gl gp (P.TTLSeconds 3600) <$> txTime
@@ -348,9 +357,9 @@ balance :: Account -> Maybe PactCode
 balance (Account a) = code . T.pack $ printf "(coin.get-balance \"%s\")" a
 
 -- | The @coin.transfer@ function.
-transfer :: Sender -> Receiver -> Double -> Maybe PactCode
-transfer (Sender (Account s)) (Receiver (Account r)) d =
-  code . T.pack $ printf "(coin.transfer \"%s\" \"%s\" %f)" s r d
+transfer :: Sender -> Receiver -> KDA -> Maybe PactCode
+transfer (Sender (Account s)) (Receiver (Account r)) (KDA d) =
+  code . T.pack $ printf "(coin.transfer \"%s\" \"%s\" %s)" s r (show d)
 
 --------------------------------------------------------------------------------
 -- Misc.

@@ -83,7 +83,7 @@ data REPL = REPL { rcid :: !ChainId, re :: !Endpoint, dat :: !TxData, rpc :: !Pa
 data Trans = Trans
   { tcid     :: !ChainId
   , receiver :: !Receiver
-  , amount   :: !Double
+  , amount   :: !KDA
   , confirm  :: Bool }
   deriving stock (Generic)
 
@@ -272,11 +272,9 @@ goodAccount (a:_)
   where
     len = T.length a
 
-goodAmount :: [Text] -> Maybe Double
+goodAmount :: [Text] -> Maybe KDA
 goodAmount []     = Nothing
-goodAmount (dt:_) = do
-  d <- readMaybe $ T.unpack dt
-  bool Nothing (Just d) $ d >= 0.000_000_000_001
+goodAmount (dt:_) = readMaybe (T.unpack dt) >>= kda
 
 --------------------------------------------------------------------------------
 -- Event Handling

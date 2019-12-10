@@ -43,6 +43,7 @@ library
     Holding.Chainweb
 
   build-depends:
+    , Decimal        ^>=0.5
     , prettyprinter  ^>=1.2
     , servant        ^>=0.16
     , time           ^>=1.8
