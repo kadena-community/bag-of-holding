@@ -1,5 +1,9 @@
 # Changelog for bag-of-holding
 
+## 1.1.1 (2019-12-10)
+
+Fixed a bug involving decimal places entered into the Transfer Wizard.
+
 ## 1.1.0 (2019-12-03)
 
 The former `t` command for writing Pact Transactions has been moved to `p`. In
