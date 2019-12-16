@@ -4,6 +4,17 @@
 
 ![Running a transaction.](screenshot.png)
 
+## Installation
+
+`boh` is a Haskell project that builds with the
+[Stack](https://docs.haskellstack.org/en/stable/README/) tool.
+
+```
+stack install
+```
+
+This will place the binary in `~/.local/bin`.
+
 ## Usage
 
 ```
