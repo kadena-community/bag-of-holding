@@ -135,18 +135,24 @@ draw e w = dispatch <> [ui]
 
     -- TODO Look into text wrapping.
     he1p :: Widget Name
-    he1p = C.centerLayer . vLimit 16 . hLimitPercent 50 . B.borderWithLabel (txt " Help ")
+    he1p = C.centerLayer . vLimit 17 . hLimitPercent 50 . B.borderWithLabel (txt " Help ")
       $ vBox
       [ C.hCenter . padBottom (Pad 1) $ txt "The Bag of Holding - A Chainweb Wallet"
-      , txt "Author:   Colin Woodbury"
-      , txt "Issues:   " <+> hyperlink url (txt url)
-      , txt $ "Chainweb: " <> chainwebVersionToText (verOf e)
-      , txt $ "Account:  " <> (accOf e ^. _Unwrapped)
-      , padTop (Pad 1) $ txt "A note on endpoints:"
-      , txt "LOCAL: Transaction is 'free', but results aren't"
-      , txt "       saved to the blockchain. Returns instantly."
-      , txt "SEND:  Transaction is mined into a block."
-      , txt "       Costs gas and takes time for the results."
+      , txt "Author:  Colin Woodbury"
+      , txt "Issues:  " <+> hyperlink url (txt url)
+      , txt $ "Network: " <> chainwebVersionToText (verOf e)
+      , txt $ "Account: " <> (accOf e ^. _Unwrapped)
+      , padTop (Pad 1) $ txt "Controls:"
+      , txt "q   - Exit BOH from the Main Screen."
+      , txt "↓↑  - Navigate the Transaction History."
+      , txt "TAB - Cycle through form fields."
+      , txt "SPC - Activate a checkbox."
+      , txt "ESC - Exit a form."
+      -- , padTop (Pad 1) $ txt "A note on endpoints:"
+      -- , txt "LOCAL: Transaction is 'free', but results aren't"
+      -- , txt "       saved to the blockchain. Returns instantly."
+      -- , txt "SEND:  Transaction is mined into a block."
+      -- , txt "       Costs gas and takes time for the results."
       , padTop (Pad 1) $ C.hCenter (txt "Press any key.") ]
       where
         url = "github.com/kadena-community/bag-of-holding"
@@ -226,7 +232,8 @@ header = vLimit 1 . C.center $ txt " The Bag of Holding "
 footer :: Text -> Widget a
 footer t = vLimit 1 $ txt (T.take 10 t) <+> C.hCenter legend
   where
-    legend = txt "[P]act Transaction - [T]ransfer - [B]alances - [H]elp - [Q]uit"
+    -- legend = txt "[P]act Transaction - [T]ransfer - [B]alances - [H]elp - [Q]uit"
+    legend = txt "[T]ransfer - [B]alances - [H]elp - [Q]uit"
 
 replForm :: Env -> REPL -> Form REPL e Name
 replForm e = newForm
@@ -378,7 +385,7 @@ mainEvent e w (VtyEvent ve) = case ve of
   V.EvKey (V.KChar 'q') [] -> halt w
 
   -- Transaction Form --
-  V.EvKey (V.KChar 'p') [] -> continue (w & field @"focOf" %~ focusSetCurrent ReplCode)
+  -- V.EvKey (V.KChar 'p') [] -> continue (w & field @"focOf" %~ focusSetCurrent ReplCode)
 
   -- Transfer Wizard --
   V.EvKey (V.KChar 't') [] -> continue (w & field @"focOf" %~ focusSetCurrent Transfer)
