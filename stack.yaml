@@ -1,4 +1,4 @@
-resolver: lts-14.14
+resolver: lts-14.17
 
 ghc-options: {"$locals": -ddump-to-file -ddump-hi}
 
@@ -12,4 +12,4 @@ extra-deps:
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: 084e129bb38010ef0d0d2b84a0708d1877cdd9ed
+    commit: e862d78b384c5fa7217f7e9326e1cd7f1eaee8b0
