@@ -24,7 +24,7 @@ within the app for UI usage specifics.
   stack install
 #+end_src
 
-This will place the binary in ~~/.local/bin~.
+This will place the binary in ~/.local/bin.
 
 * Usage
 
