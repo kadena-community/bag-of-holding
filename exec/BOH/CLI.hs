@@ -2,19 +2,21 @@
 {-# LANGUAGE DerivingStrategies #-}
 
 module BOH.CLI
-  ( Env(..), env
-  , Args(..), pArgs
+  ( Command(..), pCommand
+  , Env(..), env
+  , UIArgs(..)
   ) where
 
 import           BOH.Signing (SignReq, Signed)
 import           Brick.BChan (BChan, newBChan)
 import           Control.Error.Util (note, (!?))
 import           Control.Monad.Trans.Except (runExceptT)
-import           Holding
+import           Data.Aeson (decodeFileStrict')
+import           Holding hiding (command)
 import           Holding.Chainweb
 import           Network.HTTP.Client (newManager)
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
-import           Options.Applicative hiding (command, footer, header, str)
+import           Options.Applicative hiding (footer, header, str)
 import           RIO
 import qualified RIO.List as L
 import qualified RIO.Text as T
@@ -22,11 +24,18 @@ import           Servant.Client
 
 ---
 
--- | CLI arguments.
-data Args = Args ChainwebVersion FilePath Account BaseUrl
+data Command = KeyGen | UI UIArgs
 
-pArgs :: Parser Args
-pArgs = Args
+pCommand :: Parser Command
+pCommand = hsubparser
+  $  command "keys"   (info (pure KeyGen)  (progDesc "Generate public/private key pair"))
+  <> command "wallet" (info (UI <$> pArgs) (progDesc "Open the Bag of Holding Wallet UI"))
+
+-- | Wallet UI arguments.
+data UIArgs = UIArgs ChainwebVersion FilePath Account BaseUrl
+
+pArgs :: Parser UIArgs
+pArgs = UIArgs
   <$> pVersion
   <*> strOption (long "keyfile" <> help "Path to key file")
   <*> (Account <$> strOption (long "account" <> help "Account name"))
@@ -68,10 +77,10 @@ data Env = Env
   , respOf  :: !(TMVar (Maybe Signed)) }
   deriving stock (Generic)
 
--- | From some CLI `Args`, form the immutable runtime environment.
-env :: Args -> IO (Either Text Env)
-env (Args v fp acc url) = runExceptT $ do
-  ks <- keysFromFile fp !? ("Could not decode key file: " <> T.pack fp)
+-- | From some CLI `UIArgs`, form the immutable runtime environment.
+env :: UIArgs -> IO (Either Text Env)
+env (UIArgs v fp acc url) = runExceptT $ do
+  ks <- decodeFileStrict' fp !? ("Could not decode key file: " <> T.pack fp)
   mn <- lift $ newManager tlsManagerSettings
   bc <- lift $ newBChan 1
   ts <- newEmptyTMVarIO
