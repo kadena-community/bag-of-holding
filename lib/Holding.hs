@@ -10,7 +10,7 @@ module Holding
   ( -- * Types
     -- ** Public / Private Keys
     Keys
-  , keys, keysToFile, keysFromFile
+  , keys
     -- ** Pact Code
   , PactCode
   , code, prettyCode
@@ -119,35 +119,24 @@ DON'T:
 -- | A public/private key pair to associate and sign Pact `Transaction`s.
 newtype Keys = Keys P.SomeKeyPair
 
--- | To avoid exporting the JSON instances for `Keys`.
-newtype Hidden = Hidden { hidden :: Keys }
-
-instance ToJSON Hidden where
-  toJSON (Hidden (Keys ks)) = object [ "public" .= pub ks, "private" .= prv ks ]
+instance ToJSON Keys where
+  toJSON (Keys ks) = object [ "public" .= pub ks, "private" .= prv ks ]
     where
       pub, prv :: P.SomeKeyPair -> Value
       pub = toJSON . P.PubBS . P.getPublic
       prv = toJSON . P.PrivBS . P.getPrivate
 
-instance FromJSON Hidden where
+instance FromJSON Keys where
   parseJSON (Object v) = do
     pub <- v .: "public"
     prv <- v .: "private"
-    either mempty (pure . Hidden . Keys) $ P.importKeyPair P.defaultScheme (Just pub) prv
+    either mempty (pure . Keys) $ P.importKeyPair P.defaultScheme (Just pub) prv
   parseJSON invalid = prependFailure "parsing Keys failed: " (typeMismatch "Object" invalid)
 
 -- | Generate a Pact-compatible key pair: one public key, and one private key.
 -- This uses the ED25519 scheme.
 keys :: IO Keys
 keys = Keys <$> P.genKeyPair P.defaultScheme
-
-keysToFile :: FilePath -> Keys -> IO ()
-keysToFile fp = encodeFile fp . Hidden
-
--- | Will fail with `Nothing` if the `Keys` failed to parse from the expected
--- format.
-keysFromFile :: FilePath -> IO (Maybe Keys)
-keysFromFile = fmap (fmap hidden) . decodeFileStrict'
 
 --------------------------------------------------------------------------------
 -- Pact Code
