@@ -12,4 +12,4 @@ extra-deps:
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: e862d78b384c5fa7217f7e9326e1cd7f1eaee8b0
+    commit: a6c5315682d8e2a9a047a3d903d7641df066bbda
