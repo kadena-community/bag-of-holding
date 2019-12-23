@@ -69,6 +69,7 @@ executable boh
     , pretty-simple         ^>=2.2
     , servant               ^>=0.16
     , servant-server        ^>=0.16
+    , kadena-signing-api    ^>=0.1
     , transformers          ^>=0.5
     , vty                   >=5.25
     , wai-cors              >=0.2

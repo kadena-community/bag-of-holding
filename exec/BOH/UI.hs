@@ -20,7 +20,6 @@ module BOH.UI
   ) where
 
 import           BOH.CLI (Env(..))
-import           BOH.Signing (SignReq(..), Signed(..))
 import           Brick
 import qualified Brick.AttrMap as A
 import           Brick.Focus
@@ -40,9 +39,11 @@ import           Data.Generics.Wrapped (_Unwrapped)
 import qualified Graphics.Vty as V
 import           Holding
 import           Holding.Chainweb
+import           Kadena.SigningApi
 import           Lens.Micro
 import           Lens.Micro.Extras (preview)
 import qualified Pact.Types.Capability as P
+import qualified Pact.Types.ChainId as P
 import           RIO hiding (local, on)
 import qualified RIO.ByteString.Lazy as BL
 import           RIO.Char (isLatin1)
@@ -67,21 +68,21 @@ data Wallet = Wallet
   { txsOf   :: !Listo
   , logOf   :: !Text
   , focOf   :: !(FocusRing Name)
-  , replOf  :: !(Form REPL SignReq Name)
-  , transOf :: !(Form Trans SignReq Name)
-  , balsOf  :: [(ChainId, Maybe KDA)]
-  , reqOf   :: Maybe SignReq }
+  , replOf  :: !(Form REPL SigningRequest Name)
+  , transOf :: !(Form Trans SigningRequest Name)
+  , balsOf  :: [(P.ChainId, Maybe KDA)]
+  , reqOf   :: Maybe SigningRequest }
   deriving stock (Generic)
 
 data From = R Receipt | T TXResult deriving stock (Generic)
 
 data Endpoint = Local | Send deriving stock (Eq)
 
-data REPL = REPL { rcid :: !ChainId, re :: !Endpoint, dat :: !TxData, rpc :: !PactCode }
+data REPL = REPL { rcid :: !P.ChainId, re :: !Endpoint, dat :: !TxData, rpc :: !PactCode }
   deriving stock (Generic)
 
 data Trans = Trans
-  { tcid     :: !ChainId
+  { tcid     :: !P.ChainId
   , receiver :: !Receiver
   , amount   :: !KDA
   , confirm  :: Bool }
@@ -97,7 +98,7 @@ data Name = TXList
 --------------------------------------------------------------------------------
 -- Rendering
 
-app :: Env -> App Wallet SignReq Name
+app :: Env -> App Wallet SigningRequest Name
 app e = App
   { appDraw = draw e
   , appChooseCursor = focusRingCursor focOf
@@ -166,9 +167,9 @@ draw e w = dispatch <> [ui]
         total :: Widget w
         total = txt "Total   => " <+> str (show . sum . mapMaybe snd $ balsOf w)
 
-        f :: (ChainId, Maybe KDA) -> Widget Name
+        f :: (P.ChainId, Maybe KDA) -> Widget Name
         f (cid, md) = hBox
-          [ txt "Chain ", txt (chainIdToText cid), txt " => "
+          [ txt "Chain ", txt (P._chainId cid), txt " => "
           , str $ maybe "Balance check failed." show md ]
 
     signing :: Widget Name
@@ -177,12 +178,12 @@ draw e w = dispatch <> [ui]
       maybe [] reqContents (reqOf w) <>
       [ C.hCenter . padTop (Pad 1) $ txt "[Esc] [Enter]" ]
       where
-        reqContents :: SignReq -> [Widget Name]
+        reqContents :: SigningRequest -> [Widget Name]
         reqContents sr =
-          [ txt $ _signReq_code sr
-          , padTop (Pad 1) . txt $ "Chain:  " <> fromMaybe "Unknown" (_signReq_chainId sr)
-          , txt $ "Sender: " <> fromMaybe "Unknown" (_signReq_sender sr)
-          , txt $ "Gas:    " <> maybe "Unknown" tshow (_signReq_gasLimit sr)
+          [ txt $ _signingRequest_code sr
+          , padTop (Pad 1) . txt $ "Chain:  " <> fromMaybe "Unknown" (P._chainId <$> _signingRequest_chainId sr)
+          , txt $ "Sender: " <> fromMaybe "Unknown" (unAccountName <$> _signingRequest_sender sr)
+          , txt $ "Gas:    " <> maybe "Unknown" tshow (_signingRequest_gasLimit sr)
           , C.hCenter . padTop (Pad 1) $ txt "Sign this Transaction?" ]
 
     transfr :: Widget Name
@@ -201,7 +202,7 @@ draw e w = dispatch <> [ui]
     txListItem :: TX -> Widget Name
     txListItem (TX (REPL cid ep _ pc) eef) = vLimit 1 $ hBox
       [ hLimit 1 $ txt icon
-      , padLeft (Pad 2) . str . printf "%02d" $ chainIdInt cid
+      , padLeft (Pad 2) . str . printf "%02s" $ P._chainId cid
       , padLeft (Pad 2) $ txt end
       , padLeft (Pad 2) . txt $ prettyCode pc
       , fill ' ' ]
@@ -238,7 +239,7 @@ footer t = vLimit 1 $ txt (T.take 10 t) <+> C.hCenter legend
 replForm :: Env -> REPL -> Form REPL e Name
 replForm e = newForm
   [ label "Chain" @@= editField (field @"rcid") ReplChain Nothing
-    chainIdToText (goodChain e) (txt . T.unlines) id
+    P._chainId (goodChain e) (txt . T.unlines) id
   , label "Endpoint" @@= radioField (field @"re")
     [(Local, ReplLocal, "Local"), (Send, ReplSend, "Send")]
   , label "TX Data" @@= editField (field @"dat") ReplData Nothing
@@ -250,7 +251,7 @@ replForm e = newForm
 transferForm :: Env -> Trans -> Form Trans e Name
 transferForm e = newForm
   [ label "Chain" @@= editField (field @"tcid") TransferChain Nothing
-    chainIdToText (goodChain e) (txt . T.unlines) id
+    P._chainId (goodChain e) (txt . T.unlines) id
   , label "Receiver" @@= editField (field @"receiver") TransferReceiver Nothing
     (^. _Unwrapped . _Unwrapped) (fmap Receiver . goodAccount) (txt . T.unlines) id
   , label "Amount" @@= editField (field @"amount") TransferAmount Nothing
@@ -264,11 +265,11 @@ label t w = padBottom (Pad 1) $ vLimit 1 (hLimit 15 $ txt t <+> fill ' ') <+> w
 
 -- | Requires that the specified `ChainId` be a valid member of the Chain
 -- Graph of the current `ChainwebVersion`.
-goodChain :: Env -> [Text] -> Maybe ChainId
+goodChain :: Env -> [Text] -> Maybe P.ChainId
 goodChain _ [] = Nothing
 goodChain e (t:_) = do
-  cid <- chainIdFromText t
-  bool Nothing (Just cid) . HS.member cid . chainIds $ verOf e
+  let cid = P.ChainId t
+  bool Nothing (Just cid) . elem cid . chainIds $ verOf e
 
 -- | With constraints as defined in the Coin Contract.
 goodAccount :: [Text] -> Maybe Account
@@ -286,7 +287,7 @@ goodAmount (dt:_) = readMaybe (T.unpack dt) >>= kda
 --------------------------------------------------------------------------------
 -- Event Handling
 
-event :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
+event :: Env -> Wallet -> BrickEvent Name SigningRequest -> EventM Name (Next Wallet)
 event e w be = case focusGetCurrent $ focOf w of
   Nothing       -> continue w
   Just TXList   -> mainEvent e w be
@@ -297,7 +298,7 @@ event e w be = case focusGetCurrent $ focOf w of
   Just Transfer -> transferEvent e w be
   Just _        -> continue w
 
-replEvent :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
+replEvent :: Env -> Wallet -> BrickEvent Name SigningRequest -> EventM Name (Next Wallet)
 replEvent e w ev@(VtyEvent ve) = case ve of
   -- Close Popup --
   V.EvKey V.KEsc [] -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
@@ -318,7 +319,7 @@ replEvent _ w (AppEvent sr) = continue $ w & field @"reqOf" ?~ sr
                                            & field @"focOf" %~ focusSetCurrent Sign
 replEvent _ w _ = continue w
 
-transferEvent :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
+transferEvent :: Env -> Wallet -> BrickEvent Name SigningRequest -> EventM Name (Next Wallet)
 transferEvent e w ev@(VtyEvent ve) = case ve of
   -- Close Popup --
   V.EvKey V.KEsc [] -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
@@ -343,7 +344,7 @@ transferEvent _ w (AppEvent sr) = continue $ w & field @"reqOf" ?~ sr
                                                & field @"focOf" %~ focusSetCurrent Sign
 transferEvent _ w _ = continue w
 
-signEvent :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
+signEvent :: Env -> Wallet -> BrickEvent Name SigningRequest -> EventM Name (Next Wallet)
 signEvent e w (VtyEvent ve) = case ve of
   -- Close Popup --
   V.EvKey V.KEsc [] -> do
@@ -357,29 +358,29 @@ signEvent e w (VtyEvent ve) = case ve of
       -- TODO This should return the data that they gave, not `Null`!
       -- TODO Properly handle caps here!
       tx <- view command <$> transaction (verOf e) (TxData Null) c [] (keysOf e) m
-      atomically $ putTMVar (respOf e) (Just . Signed tx $ chainIdToText cid)
+      atomically $ putTMVar (respOf e) (Just . SigningResponse tx $ cid)
     continue $ w & field @"focOf" %~ focusSetCurrent TXList
                  & field @"reqOf" .~ Nothing
     where
-      codeAndChain :: Maybe (PactCode, ChainId)
+      codeAndChain :: Maybe (PactCode, P.ChainId)
       codeAndChain = do
         sr  <- reqOf w
-        c   <- code $ _signReq_code sr
-        cid <- _signReq_chainId sr >>= chainIdFromText
+        c   <- code $ _signingRequest_code sr
+        cid <- _signingRequest_chainId sr
         pure (c, cid)
 
   _ -> continue w
 signEvent _ w _ = continue w
 
 -- | Display some simple page until any key is pressed.
-simplePage :: Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
+simplePage :: Wallet -> BrickEvent Name SigningRequest -> EventM Name (Next Wallet)
 simplePage w be = case be of
   VtyEvent (V.EvKey _ []) -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
   AppEvent sr -> continue $ w & field @"reqOf" ?~ sr
                               & field @"focOf" %~ focusSetCurrent Sign
   _ -> continue w
 
-mainEvent :: Env -> Wallet -> BrickEvent Name SignReq -> EventM Name (Next Wallet)
+mainEvent :: Env -> Wallet -> BrickEvent Name SigningRequest -> EventM Name (Next Wallet)
 mainEvent e w (VtyEvent ve) = case ve of
   -- Quit --
   V.EvKey (V.KChar 'q') [] -> halt w
@@ -395,11 +396,11 @@ mainEvent e w (VtyEvent ve) = case ve of
     -- TODO Handle caps
     txs <- liftIO $ mapConcurrently (bitraverse pure (traverse (call e []))) rs
     continue $ w & field @"focOf"  %~ focusSetCurrent Balances
-                 & field @"balsOf" .~ map (second ds) txs
+                 & field @"balsOf" .~ map (first P.ChainId . second ds) txs
     where
-      cs = L.sort . toList . chainIds $ verOf e
+      cs = L.sort . map P._chainId $ chainIds $ verOf e
       cd = balance $ accOf e
-      rs = map (\cid -> (cid, REPL cid Local (TxData Null) <$> cd)) cs
+      rs = map (\cid -> (cid, REPL (P.ChainId cid) Local (TxData Null) <$> cd)) cs
       ds = preview (_Just . position @2 . _Right . _Ctor @"T" . pactDouble . to kda . _Just)
 
   -- Help Window --

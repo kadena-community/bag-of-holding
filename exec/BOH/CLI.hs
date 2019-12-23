@@ -7,13 +7,13 @@ module BOH.CLI
   , UIArgs(..)
   ) where
 
-import           BOH.Signing (SignReq, Signed)
 import           Brick.BChan (BChan, newBChan)
 import           Control.Error.Util (note, (!?))
 import           Control.Monad.Trans.Except (runExceptT)
 import           Data.Aeson (decodeFileStrict')
 import           Holding hiding (command)
 import           Holding.Chainweb
+import           Kadena.SigningApi
 import           Network.HTTP.Client (newManager)
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Options.Applicative hiding (footer, header, str)
@@ -42,18 +42,11 @@ pArgs = UIArgs
   <*> pUrl
 
 pVersion :: Parser ChainwebVersion
-pVersion = option p
+pVersion = fmap (ChainwebVersion . T.pack) $ strOption
     (long "version" <> metavar "VERSION" <> value defv
-     <> help ("Chainweb Network Version (default: " <> asT <> ")"))
+     <> help ("Chainweb Network Version (default: " <> defv <> ")"))
   where
-    p :: ReadM ChainwebVersion
-    p = eitherReader (\v -> note ("Unknown version given: " <> v) $ chainwebVersionFromText v)
-
-    defv :: ChainwebVersion
-    defv = Mainnet
-
-    asT :: String
-    asT = T.unpack $ chainwebVersionToText defv
+    defv = "mainnet01"
 
 pUrl :: Parser BaseUrl
 pUrl = option (eitherReader pBaseUrl)
@@ -73,8 +66,8 @@ data Env = Env
   , clenvOf :: !ClientEnv
   , keysOf  :: !Keys
   , accOf   :: !Account
-  , chanOf  :: !(BChan SignReq)
-  , respOf  :: !(TMVar (Maybe Signed)) }
+  , chanOf  :: !(BChan SigningRequest)
+  , respOf  :: !(TMVar (Maybe SigningResponse)) }
   deriving stock (Generic)
 
 -- | From some CLI `UIArgs`, form the immutable runtime environment.

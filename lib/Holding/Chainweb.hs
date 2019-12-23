@@ -15,47 +15,20 @@
 module Holding.Chainweb
   ( -- * ChainwebVersion
     ChainwebVersion(..)
-  , chainwebVersionToText, chainwebVersionFromText
-    -- * ChainId
-  , ChainId(..)
-  , chainIdToText, chainIdFromText
   , chainIds
   ) where
 
+import           Pact.Types.ChainId
 import           RIO
-import qualified RIO.HashSet as HS
 import qualified RIO.Text as T
 import           Servant.API
 
 ---
 
-data ChainwebVersion = Testnet | Mainnet
+newtype ChainwebVersion = ChainwebVersion { chainwebVersionToText :: Text }
 
 instance ToHttpApiData ChainwebVersion where
   toUrlPiece = chainwebVersionToText
 
-chainIds :: ChainwebVersion -> HashSet ChainId
-chainIds Testnet = HS.fromList [0 .. 9]
-chainIds Mainnet = HS.fromList [0 .. 9]
-
-chainwebVersionToText :: ChainwebVersion -> Text
-chainwebVersionToText Testnet = "testnet04"
-chainwebVersionToText Mainnet = "mainnet01"
-
-chainwebVersionFromText :: String -> Maybe ChainwebVersion
-chainwebVersionFromText "testnet04" = Just Testnet
-chainwebVersionFromText "mainnet01" = Just Mainnet
-chainwebVersionFromText _           = Nothing
-
-newtype ChainId = ChainId { chainIdInt :: Word }
-  deriving stock (Eq, Ord)
-  deriving newtype (Num, Enum, Hashable)
-
-instance ToHttpApiData ChainId where
-  toUrlPiece = chainIdToText
-
-chainIdToText :: ChainId -> Text
-chainIdToText (ChainId n) = T.pack $ show n
-
-chainIdFromText :: Text -> Maybe ChainId
-chainIdFromText = fmap ChainId . readMaybe . T.unpack
+chainIds :: ChainwebVersion -> [ChainId]
+chainIds _ = map (ChainId . T.pack . show) [0 :: Int .. 9]
