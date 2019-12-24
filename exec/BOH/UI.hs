@@ -39,7 +39,7 @@ import           Data.Generics.Wrapped (_Unwrapped)
 import qualified Graphics.Vty as V
 import           Holding
 import           Holding.Chainweb
-import           Kadena.SigningApi
+import qualified Kadena.SigningApi as K
 import           Lens.Micro
 import           Lens.Micro.Extras (preview)
 import qualified Pact.Types.Capability as P
@@ -47,7 +47,6 @@ import qualified Pact.Types.ChainId as P
 import           RIO hiding (local, on)
 import qualified RIO.ByteString.Lazy as BL
 import           RIO.Char (isLatin1)
-import qualified RIO.HashSet as HS
 import qualified RIO.List as L
 import qualified RIO.Seq as Seq
 import qualified RIO.Text as T
@@ -68,10 +67,10 @@ data Wallet = Wallet
   { txsOf   :: !Listo
   , logOf   :: !Text
   , focOf   :: !(FocusRing Name)
-  , replOf  :: !(Form REPL SigningRequest Name)
-  , transOf :: !(Form Trans SigningRequest Name)
+  , replOf  :: !(Form REPL K.SigningRequest Name)
+  , transOf :: !(Form Trans K.SigningRequest Name)
   , balsOf  :: [(P.ChainId, Maybe KDA)]
-  , reqOf   :: Maybe SigningRequest }
+  , reqOf   :: Maybe K.SigningRequest }
   deriving stock (Generic)
 
 data From = R Receipt | T TXResult deriving stock (Generic)
@@ -98,7 +97,7 @@ data Name = TXList
 --------------------------------------------------------------------------------
 -- Rendering
 
-app :: Env -> App Wallet SigningRequest Name
+app :: Env -> App Wallet K.SigningRequest Name
 app e = App
   { appDraw = draw e
   , appChooseCursor = focusRingCursor focOf
@@ -178,12 +177,12 @@ draw e w = dispatch <> [ui]
       maybe [] reqContents (reqOf w) <>
       [ C.hCenter . padTop (Pad 1) $ txt "[Esc] [Enter]" ]
       where
-        reqContents :: SigningRequest -> [Widget Name]
+        reqContents :: K.SigningRequest -> [Widget Name]
         reqContents sr =
-          [ txt $ _signingRequest_code sr
-          , padTop (Pad 1) . txt $ "Chain:  " <> fromMaybe "Unknown" (P._chainId <$> _signingRequest_chainId sr)
-          , txt $ "Sender: " <> fromMaybe "Unknown" (unAccountName <$> _signingRequest_sender sr)
-          , txt $ "Gas:    " <> maybe "Unknown" tshow (_signingRequest_gasLimit sr)
+          [ txt $ K._signingRequest_code sr
+          , padTop (Pad 1) . txt $ "Chain:  " <> fromMaybe "Unknown" (P._chainId <$> K._signingRequest_chainId sr)
+          , txt $ "Sender: " <> fromMaybe "Unknown" (K.unAccountName <$> K._signingRequest_sender sr)
+          , txt $ "Gas:    " <> maybe "Unknown" tshow (K._signingRequest_gasLimit sr)
           , C.hCenter . padTop (Pad 1) $ txt "Sign this Transaction?" ]
 
     transfr :: Widget Name
@@ -287,7 +286,7 @@ goodAmount (dt:_) = readMaybe (T.unpack dt) >>= kda
 --------------------------------------------------------------------------------
 -- Event Handling
 
-event :: Env -> Wallet -> BrickEvent Name SigningRequest -> EventM Name (Next Wallet)
+event :: Env -> Wallet -> BrickEvent Name K.SigningRequest -> EventM Name (Next Wallet)
 event e w be = case focusGetCurrent $ focOf w of
   Nothing       -> continue w
   Just TXList   -> mainEvent e w be
@@ -298,7 +297,7 @@ event e w be = case focusGetCurrent $ focOf w of
   Just Transfer -> transferEvent e w be
   Just _        -> continue w
 
-replEvent :: Env -> Wallet -> BrickEvent Name SigningRequest -> EventM Name (Next Wallet)
+replEvent :: Env -> Wallet -> BrickEvent Name K.SigningRequest -> EventM Name (Next Wallet)
 replEvent e w ev@(VtyEvent ve) = case ve of
   -- Close Popup --
   V.EvKey V.KEsc [] -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
@@ -319,7 +318,7 @@ replEvent _ w (AppEvent sr) = continue $ w & field @"reqOf" ?~ sr
                                            & field @"focOf" %~ focusSetCurrent Sign
 replEvent _ w _ = continue w
 
-transferEvent :: Env -> Wallet -> BrickEvent Name SigningRequest -> EventM Name (Next Wallet)
+transferEvent :: Env -> Wallet -> BrickEvent Name K.SigningRequest -> EventM Name (Next Wallet)
 transferEvent e w ev@(VtyEvent ve) = case ve of
   -- Close Popup --
   V.EvKey V.KEsc [] -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
@@ -344,7 +343,7 @@ transferEvent _ w (AppEvent sr) = continue $ w & field @"reqOf" ?~ sr
                                                & field @"focOf" %~ focusSetCurrent Sign
 transferEvent _ w _ = continue w
 
-signEvent :: Env -> Wallet -> BrickEvent Name SigningRequest -> EventM Name (Next Wallet)
+signEvent :: Env -> Wallet -> BrickEvent Name K.SigningRequest -> EventM Name (Next Wallet)
 signEvent e w (VtyEvent ve) = case ve of
   -- Close Popup --
   V.EvKey V.KEsc [] -> do
@@ -358,29 +357,29 @@ signEvent e w (VtyEvent ve) = case ve of
       -- TODO This should return the data that they gave, not `Null`!
       -- TODO Properly handle caps here!
       tx <- view command <$> transaction (verOf e) (TxData Null) c [] (keysOf e) m
-      atomically $ putTMVar (respOf e) (Just . SigningResponse tx $ cid)
+      atomically $ putTMVar (respOf e) (Just . K.SigningResponse tx $ cid)
     continue $ w & field @"focOf" %~ focusSetCurrent TXList
                  & field @"reqOf" .~ Nothing
     where
       codeAndChain :: Maybe (PactCode, P.ChainId)
       codeAndChain = do
         sr  <- reqOf w
-        c   <- code $ _signingRequest_code sr
-        cid <- _signingRequest_chainId sr
+        c   <- code $ K._signingRequest_code sr
+        cid <- K._signingRequest_chainId sr
         pure (c, cid)
 
   _ -> continue w
 signEvent _ w _ = continue w
 
 -- | Display some simple page until any key is pressed.
-simplePage :: Wallet -> BrickEvent Name SigningRequest -> EventM Name (Next Wallet)
+simplePage :: Wallet -> BrickEvent Name K.SigningRequest -> EventM Name (Next Wallet)
 simplePage w be = case be of
   VtyEvent (V.EvKey _ []) -> continue (w & field @"focOf" %~ focusSetCurrent TXList)
   AppEvent sr -> continue $ w & field @"reqOf" ?~ sr
                               & field @"focOf" %~ focusSetCurrent Sign
   _ -> continue w
 
-mainEvent :: Env -> Wallet -> BrickEvent Name SigningRequest -> EventM Name (Next Wallet)
+mainEvent :: Env -> Wallet -> BrickEvent Name K.SigningRequest -> EventM Name (Next Wallet)
 mainEvent e w (VtyEvent ve) = case ve of
   -- Quit --
   V.EvKey (V.KChar 'q') [] -> halt w

@@ -325,9 +325,6 @@ listen v cid (Receipt rk) = g <$> listen' v cid (P.ListenerRequest rk)
 local :: ChainwebVersion -> P.ChainId -> Transaction -> ClientM TXResult
 local v cid (Transaction tx) = TXResult <$> local' v cid tx
 
-instance ToHttpApiData P.ChainId where
-  toUrlPiece = P._chainId
-
 send'   :: ChainwebVersion -> P.ChainId -> P.SubmitBatch -> ClientM P.RequestKeys
 poll'   :: ChainwebVersion -> P.ChainId -> P.Poll -> ClientM P.PollResponses
 listen' :: ChainwebVersion -> P.ChainId -> P.ListenerRequest -> ClientM P.ListenResponse

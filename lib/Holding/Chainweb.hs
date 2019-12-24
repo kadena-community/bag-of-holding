@@ -1,5 +1,6 @@
 {-# LANGUAGE DerivingStrategies         #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TypeApplications           #-}
 
 -- |
 -- Module: Holding.Chainweb
@@ -18,17 +19,19 @@ module Holding.Chainweb
   , chainIds
   ) where
 
-import           Pact.Types.ChainId
+import qualified Pact.Types.ChainId as P
 import           RIO
 import qualified RIO.Text as T
-import           Servant.API
+import           Servant.API (ToHttpApiData(..))
 
 ---
 
+-- | A newtype over `Text` allows BOH to be resilient to bumps in Testnet
+-- version numbers.
 newtype ChainwebVersion = ChainwebVersion { chainwebVersionToText :: Text }
 
 instance ToHttpApiData ChainwebVersion where
   toUrlPiece = chainwebVersionToText
 
-chainIds :: ChainwebVersion -> [ChainId]
-chainIds _ = map (ChainId . T.pack . show) [0 :: Int .. 9]
+chainIds :: ChainwebVersion -> [P.ChainId]
+chainIds _ = map (P.ChainId . T.pack . show @Int) [0 .. 9]

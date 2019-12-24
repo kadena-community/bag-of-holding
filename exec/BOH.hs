@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main ( main ) where
@@ -13,7 +13,6 @@ import           Data.Aeson hiding (Options)
 import           Data.Aeson.Encode.Pretty (encodePretty)
 import qualified Graphics.Vty as V
 import           Holding
-import           Holding.Chainweb
 import qualified Network.Wai.Handler.Warp as W
 import           Options.Applicative hiding (command, footer, header, str)
 import qualified Pact.Types.ChainId as P

@@ -8,12 +8,12 @@ module BOH.CLI
   ) where
 
 import           Brick.BChan (BChan, newBChan)
-import           Control.Error.Util (note, (!?))
+import           Control.Error.Util ((!?))
 import           Control.Monad.Trans.Except (runExceptT)
 import           Data.Aeson (decodeFileStrict')
 import           Holding hiding (command)
 import           Holding.Chainweb
-import           Kadena.SigningApi
+import qualified Kadena.SigningApi as K
 import           Network.HTTP.Client (newManager)
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Options.Applicative hiding (footer, header, str)
@@ -66,8 +66,8 @@ data Env = Env
   , clenvOf :: !ClientEnv
   , keysOf  :: !Keys
   , accOf   :: !Account
-  , chanOf  :: !(BChan SigningRequest)
-  , respOf  :: !(TMVar (Maybe SigningResponse)) }
+  , chanOf  :: !(BChan K.SigningRequest)
+  , respOf  :: !(TMVar (Maybe K.SigningResponse)) }
   deriving stock (Generic)
 
 -- | From some CLI `UIArgs`, form the immutable runtime environment.
