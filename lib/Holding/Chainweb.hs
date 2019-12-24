@@ -1,5 +1,6 @@
 {-# LANGUAGE DerivingStrategies         #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TypeApplications           #-}
 
 -- |
 -- Module: Holding.Chainweb
@@ -15,47 +16,22 @@
 module Holding.Chainweb
   ( -- * ChainwebVersion
     ChainwebVersion(..)
-  , chainwebVersionToText, chainwebVersionFromText
-    -- * ChainId
-  , ChainId(..)
-  , chainIdToText, chainIdFromText
   , chainIds
   ) where
 
+import qualified Pact.Types.ChainId as P
 import           RIO
-import qualified RIO.HashSet as HS
 import qualified RIO.Text as T
-import           Servant.API
+import           Servant.API (ToHttpApiData(..))
 
 ---
 
-data ChainwebVersion = Testnet | Mainnet
+-- | A newtype over `Text` allows BOH to be resilient to bumps in Testnet
+-- version numbers.
+newtype ChainwebVersion = ChainwebVersion { chainwebVersionToText :: Text }
 
 instance ToHttpApiData ChainwebVersion where
   toUrlPiece = chainwebVersionToText
 
-chainIds :: ChainwebVersion -> HashSet ChainId
-chainIds Testnet = HS.fromList [0 .. 9]
-chainIds Mainnet = HS.fromList [0 .. 9]
-
-chainwebVersionToText :: ChainwebVersion -> Text
-chainwebVersionToText Testnet = "testnet04"
-chainwebVersionToText Mainnet = "mainnet01"
-
-chainwebVersionFromText :: String -> Maybe ChainwebVersion
-chainwebVersionFromText "testnet04" = Just Testnet
-chainwebVersionFromText "mainnet01" = Just Mainnet
-chainwebVersionFromText _           = Nothing
-
-newtype ChainId = ChainId { chainIdInt :: Word }
-  deriving stock (Eq, Ord)
-  deriving newtype (Num, Enum, Hashable)
-
-instance ToHttpApiData ChainId where
-  toUrlPiece = chainIdToText
-
-chainIdToText :: ChainId -> Text
-chainIdToText (ChainId n) = T.pack $ show n
-
-chainIdFromText :: Text -> Maybe ChainId
-chainIdFromText = fmap ChainId . readMaybe . T.unpack
+chainIds :: ChainwebVersion -> [P.ChainId]
+chainIds _ = map (P.ChainId . T.pack . show @Int) [0 .. 9]

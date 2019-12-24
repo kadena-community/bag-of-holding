@@ -1,4 +1,5 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Main ( main ) where
 
@@ -12,9 +13,9 @@ import           Data.Aeson hiding (Options)
 import           Data.Aeson.Encode.Pretty (encodePretty)
 import qualified Graphics.Vty as V
 import           Holding
-import           Holding.Chainweb
 import qualified Network.Wai.Handler.Warp as W
 import           Options.Applicative hiding (command, footer, header, str)
+import qualified Pact.Types.ChainId as P
 import           RIO hiding (Handler, local, on)
 import qualified RIO.ByteString.Lazy as BL
 import           RIO.Partial (fromJust)
@@ -40,8 +41,8 @@ main = execParser opts >>= \case
       (L.list TXList mempty 1)
       ""
       (focusRing [minBound ..])
-      (replForm e . REPL (ChainId 0) Local (TxData Null) . fromJust $ code "(+ 1 1)")
-      (transferForm e $ Trans (ChainId 0) (Receiver $ Account "") 0 False)
+      (replForm e . REPL (P.ChainId "0") Local (TxData Null) . fromJust $ code "(+ 1 1)")
+      (transferForm e $ Trans (P.ChainId "0") (Receiver $ Account "") 0 False)
       []
       Nothing
 

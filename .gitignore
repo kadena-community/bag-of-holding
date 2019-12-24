@@ -1,2 +1,6 @@
 .stack-work/*
 *.dump-hi
+.ghc.environment.*
+dist
+dist-newstyle
+

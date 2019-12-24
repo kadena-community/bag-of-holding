@@ -209,10 +209,9 @@ newtype Account = Account Text deriving (Generic)
 
 -- TODO Make the `GasLimit` an argument for the signing API.
 -- | To feed to the `transaction` function.
-meta :: Account -> ChainId -> IO P.PublicMeta
-meta (Account t) c = P.PublicMeta c' t gl gp (P.TTLSeconds 3600) <$> txTime
+meta :: Account -> P.ChainId -> IO P.PublicMeta
+meta (Account t) c = P.PublicMeta c t gl gp (P.TTLSeconds 3600) <$> txTime
   where
-    c' = P.ChainId $ chainIdToText c
     gl = P.GasLimit 600
     gp = P.GasPrice 0.00001
 
@@ -249,7 +248,7 @@ type SendAPI = "chainweb"
   :> "0.0"
   :> Capture "version" ChainwebVersion
   :> "chain"
-  :> Capture "chainId" ChainId
+  :> Capture "chainId" P.ChainId
   :> "pact"
   :> "api"
   :> "v1"
@@ -261,7 +260,7 @@ type PollAPI = "chainweb"
   :> "0.0"
   :> Capture "version" ChainwebVersion
   :> "chain"
-  :> Capture "chainId" ChainId
+  :> Capture "chainId" P.ChainId
   :> "pact"
   :> "api"
   :> "v1"
@@ -273,7 +272,7 @@ type ListenAPI = "chainweb"
   :> "0.0"
   :> Capture "version" ChainwebVersion
   :> "chain"
-  :> Capture "chainId" ChainId
+  :> Capture "chainId" P.ChainId
   :> "pact"
   :> "api"
   :> "v1"
@@ -285,7 +284,7 @@ type LocalAPI = "chainweb"
   :> "0.0"
   :> Capture "version" ChainwebVersion
   :> "chain"
-  :> Capture "chainId" ChainId
+  :> Capture "chainId" P.ChainId
   :> "pact"
   :> "api"
   :> "v1"
@@ -295,18 +294,18 @@ type LocalAPI = "chainweb"
 
 -- | Submit a `Transaction` to Chainweb. This will cost gas, and the associated
 -- `Account` will be charged.
-send :: ChainwebVersion -> ChainId -> Transaction -> ClientM Receipt
+send :: ChainwebVersion -> P.ChainId -> Transaction -> ClientM Receipt
 send v cid (Transaction tx) =
   Receipt . NEL.head . P._rkRequestKeys <$> send' v cid (P.SubmitBatch $ pure tx)
 
-sends :: ChainwebVersion -> ChainId -> NonEmpty Transaction -> ClientM Receipts
+sends :: ChainwebVersion -> P.ChainId -> NonEmpty Transaction -> ClientM Receipts
 sends v cid txs =
   Receipts . P._rkRequestKeys <$> send' v cid (P.SubmitBatch $ NEL.map cmdt txs)
 
 -- | A quick peek into the status of a `Transaction`. Unlike `listen`, this is
 -- non-blocking and so will always return right away, even when the
 -- `Transaction` has not completed.
-poll :: ChainwebVersion -> ChainId -> Receipt -> ClientM (Maybe TXResult)
+poll :: ChainwebVersion -> P.ChainId -> Receipt -> ClientM (Maybe TXResult)
 poll v cid (Receipt rk) = g <$> poll' v cid (P.Poll $ pure rk)
   where
     g :: P.PollResponses -> Maybe TXResult
@@ -315,7 +314,7 @@ poll v cid (Receipt rk) = g <$> poll' v cid (P.Poll $ pure rk)
 -- | Do a blocking call to wait for the results corresponding to some `Receipt.`
 -- Might time out, in which case `Nothing` is returned. Should return quickly
 -- for `Transaction`s which have already completed.
-listen :: ChainwebVersion -> ChainId -> Receipt -> ClientM (Maybe TXResult)
+listen :: ChainwebVersion -> P.ChainId -> Receipt -> ClientM (Maybe TXResult)
 listen v cid (Receipt rk) = g <$> listen' v cid (P.ListenerRequest rk)
   where
     g :: P.ListenResponse -> Maybe TXResult
@@ -323,13 +322,13 @@ listen v cid (Receipt rk) = g <$> listen' v cid (P.ListenerRequest rk)
     g (P.ListenResponse cr) = Just $ TXResult cr
 
 -- | A non-blocking `Transaction` that can't write changes and spends no gas.
-local :: ChainwebVersion -> ChainId -> Transaction -> ClientM TXResult
+local :: ChainwebVersion -> P.ChainId -> Transaction -> ClientM TXResult
 local v cid (Transaction tx) = TXResult <$> local' v cid tx
 
-send'   :: ChainwebVersion -> ChainId -> P.SubmitBatch -> ClientM P.RequestKeys
-poll'   :: ChainwebVersion -> ChainId -> P.Poll -> ClientM P.PollResponses
-listen' :: ChainwebVersion -> ChainId -> P.ListenerRequest -> ClientM P.ListenResponse
-local'  :: ChainwebVersion -> ChainId -> P.Command Text -> ClientM (P.CommandResult P.Hash)
+send'   :: ChainwebVersion -> P.ChainId -> P.SubmitBatch -> ClientM P.RequestKeys
+poll'   :: ChainwebVersion -> P.ChainId -> P.Poll -> ClientM P.PollResponses
+listen' :: ChainwebVersion -> P.ChainId -> P.ListenerRequest -> ClientM P.ListenResponse
+local'  :: ChainwebVersion -> P.ChainId -> P.Command Text -> ClientM (P.CommandResult P.Hash)
 send' :<|> poll' :<|> listen' :<|> local' = client (Proxy @PactAPI)
 
 --------------------------------------------------------------------------------
