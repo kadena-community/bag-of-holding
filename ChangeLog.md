@@ -26,7 +26,7 @@ $ boh keys > keys.json
 The old way of opening `boh` to access the Wallet UI now requires the `wallet`
 command:
 
-```boh
+```bash
 $ boh wallet --keyfile=keys.json --account=you --node=us-w1.chainweb.com:443
 ```
 
