@@ -44,6 +44,8 @@ import           Lens.Micro
 import           Lens.Micro.Extras (preview)
 import qualified Pact.Types.Capability as P
 import qualified Pact.Types.ChainId as P
+import qualified Pact.Types.Gas as P
+import qualified Pact.Types.Pretty as P
 import           RIO hiding (local, on)
 import qualified RIO.ByteString.Lazy as BL
 import           RIO.Char (isLatin1)
@@ -172,7 +174,7 @@ draw e w = dispatch <> [ui]
           , str $ maybe "Balance check failed." show md ]
 
     signing :: Widget Name
-    signing = C.centerLayer . vLimit 12 . hLimitPercent 50
+    signing = C.centerLayer . vLimit vLim . hLimitPercent 50
       . B.borderWithLabel (txt " Transaction Signing ") $ vBox $
       maybe [] reqContents (reqOf w) <>
       [ C.hCenter . padTop (Pad 1) $ txt "[Esc] [Enter]" ]
@@ -183,7 +185,15 @@ draw e w = dispatch <> [ui]
           , padTop (Pad 1) . txt $ "Chain:  " <> maybe "Unknown" P._chainId (K._signingRequest_chainId sr)
           , txt $ "Sender: " <> maybe "Unknown" K.unAccountName (K._signingRequest_sender sr)
           , txt $ "Gas:    " <> maybe "Unknown" tshow (K._signingRequest_gasLimit sr)
-          , C.hCenter . padTop (Pad 1) $ txt "Sign this Transaction?" ]
+          , txt "Capabilities:" ]
+          <> map cap (K._signingRequest_caps sr)
+          <> [ C.hCenter . padTop (Pad 1) $ txt "Sign this Transaction?" ]
+
+        cap :: K.DappCap -> Widget Name
+        cap c = txt $ "  " <> P.renderCompactText (K._dappCap_cap c)
+
+        vLim :: Int
+        vLim = maybe 12 ((+ 12) . length . K._signingRequest_caps) (reqOf w)
 
     transfr :: Widget Name
     transfr = C.centerLayer . vLimit 11 . hLimitPercent 50
@@ -352,21 +362,22 @@ signEvent e w (VtyEvent ve) = case ve of
 
   -- Sign the Transaction --
   V.EvKey V.KEnter [] -> do
-    liftIO $ for_ codeAndChain $ \(c, cid) -> do
-      m  <- meta (accOf e) cid
+    liftIO $ for_ codeAndChain $ \(c, cid, caps, gl) -> do
+      m  <- meta (accOf e) cid gl
       -- TODO This should return the data that they gave, not `Null`!
-      -- TODO Properly handle caps here!
-      tx <- view command <$> transaction (verOf e) (TxData Null) c [] (keysOf e) m
+      tx <- view command <$> transaction (verOf e) (TxData Null) c caps (keysOf e) m
       atomically $ putTMVar (respOf e) (Just . K.SigningResponse tx $ cid)
     continue $ w & field @"focOf" %~ focusSetCurrent TXList
                  & field @"reqOf" .~ Nothing
     where
-      codeAndChain :: Maybe (PactCode, P.ChainId)
+      codeAndChain :: Maybe (PactCode, P.ChainId, [P.SigCapability], P.GasLimit)
       codeAndChain = do
         sr  <- reqOf w
         c   <- code $ K._signingRequest_code sr
         cid <- K._signingRequest_chainId sr
-        pure (c, cid)
+        gl  <- K._signingRequest_gasLimit sr
+        let !caps = map K._dappCap_cap $ K._signingRequest_caps sr
+        pure (c, cid, caps, gl)
 
   _ -> continue w
 signEvent _ w _ = continue w
@@ -437,7 +448,7 @@ handleFormEventL l s ev = do
 
 call :: Env -> [P.SigCapability] -> REPL -> IO TX
 call e caps r@(REPL cid ep td c) = do
-  m  <- meta (accOf e) cid
+  m  <- meta (accOf e) cid (P.GasLimit 600)  -- TODO Make GasLimit configurable.
   tx <- transaction (verOf e) td c caps (keysOf e) m
   TX r <$> runClientM (f tx) (clenvOf e)
   where
