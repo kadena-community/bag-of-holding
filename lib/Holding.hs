@@ -205,9 +205,8 @@ kda d = bool Nothing (Just $ KDA d) $ decimalPlaces d <= 12
 -- Pact Communication
 
 -- | A "Coin Contract" account.
-newtype Account = Account Text deriving (Generic)
+newtype Account = Account { acct :: Text } deriving (Generic)
 
--- TODO Make the `GasLimit` an argument for the signing API.
 -- | To feed to the `transaction` function.
 meta :: Account -> P.ChainId -> P.GasLimit -> IO P.PublicMeta
 meta (Account t) c gl = P.PublicMeta c t gl gp (P.TTLSeconds 3600) <$> txTime

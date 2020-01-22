@@ -183,8 +183,8 @@ draw e w = dispatch <> [ui]
         reqContents sr =
           [ txt $ K._signingRequest_code sr
           , padTop (Pad 1) . txt $ "Chain:  " <> maybe "Unknown" P._chainId (K._signingRequest_chainId sr)
-          , txt $ "Sender: " <> maybe "Unknown" K.unAccountName (K._signingRequest_sender sr)
-          , txt $ "Gas:    " <> maybe "Unknown" tshow (K._signingRequest_gasLimit sr)
+          , txt $ "Sender: " <> maybe (acct $ accOf e) K.unAccountName (K._signingRequest_sender sr)
+          , txt $ "Gas:    " <> maybe "600" tshow (K._signingRequest_gasLimit sr)
           , txt "Capabilities:" ]
           <> map cap (K._signingRequest_caps sr)
           <> [ C.hCenter . padTop (Pad 1) $ txt "Sign this Transaction?" ]
@@ -362,22 +362,23 @@ signEvent e w (VtyEvent ve) = case ve of
 
   -- Sign the Transaction --
   V.EvKey V.KEnter [] -> do
-    liftIO $ for_ codeAndChain $ \(c, cid, caps, gl) -> do
-      m  <- meta (accOf e) cid gl
+    liftIO $ for_ codeAndChain $ \(c, cid, caps, gl, acc) -> do
+      m  <- meta acc cid gl
       -- TODO This should return the data that they gave, not `Null`!
       tx <- view command <$> transaction (verOf e) (TxData Null) c caps (keysOf e) m
       atomically $ putTMVar (respOf e) (Just . K.SigningResponse tx $ cid)
     continue $ w & field @"focOf" %~ focusSetCurrent TXList
                  & field @"reqOf" .~ Nothing
     where
-      codeAndChain :: Maybe (PactCode, P.ChainId, [P.SigCapability], P.GasLimit)
+      codeAndChain :: Maybe (PactCode, P.ChainId, [P.SigCapability], P.GasLimit, Account)
       codeAndChain = do
         sr  <- reqOf w
         c   <- code $ K._signingRequest_code sr
         cid <- K._signingRequest_chainId sr
-        gl  <- K._signingRequest_gasLimit sr
+        gl  <- K._signingRequest_gasLimit sr <|> Just (P.GasLimit 600)
+        acc <- fmap (Account . K.unAccountName) (K._signingRequest_sender sr) <|> Just (accOf e)
         let !caps = map K._dappCap_cap $ K._signingRequest_caps sr
-        pure (c, cid, caps, gl)
+        pure (c, cid, caps, gl, acc)
 
   _ -> continue w
 signEvent _ w _ = continue w
