@@ -1,5 +1,15 @@
 # Changelog for Bag of Holding
 
+## 1.3.0 (2020-01-22)
+
+`boh` now supports the Pact [Signing
+API](https://github.com/kadena-io/signing-api). When `boh` is open, it is
+running a small web server on Port 9467. Applications that want a transaction
+signature from you will make a request to this port, and an prompt box will
+appear for you to confirm or deny the transaction.
+
+![](./signing.png)
+
 ## 1.2.0 (2019-12-19)
 
 ### New Feature
