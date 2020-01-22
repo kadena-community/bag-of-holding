@@ -42,7 +42,7 @@ pArgs = UIArgs
   <*> pUrl
 
 pVersion :: Parser ChainwebVersion
-pVersion = fmap (ChainwebVersion . T.pack) $ strOption
+pVersion = ChainwebVersion . T.pack <$> strOption
     (long "version" <> metavar "VERSION" <> value defv
      <> help ("Chainweb Network Version (default: " <> defv <> ")"))
   where

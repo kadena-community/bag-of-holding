@@ -180,8 +180,8 @@ draw e w = dispatch <> [ui]
         reqContents :: K.SigningRequest -> [Widget Name]
         reqContents sr =
           [ txt $ K._signingRequest_code sr
-          , padTop (Pad 1) . txt $ "Chain:  " <> fromMaybe "Unknown" (P._chainId <$> K._signingRequest_chainId sr)
-          , txt $ "Sender: " <> fromMaybe "Unknown" (K.unAccountName <$> K._signingRequest_sender sr)
+          , padTop (Pad 1) . txt $ "Chain:  " <> maybe "Unknown" P._chainId (K._signingRequest_chainId sr)
+          , txt $ "Sender: " <> maybe "Unknown" K.unAccountName (K._signingRequest_sender sr)
           , txt $ "Gas:    " <> maybe "Unknown" tshow (K._signingRequest_gasLimit sr)
           , C.hCenter . padTop (Pad 1) $ txt "Sign this Transaction?" ]
 
