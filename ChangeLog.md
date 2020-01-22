@@ -1,5 +1,9 @@
 # Changelog for Bag of Holding
 
+## 1.3.1 (2020-01-22)
+
+Fixed a bug involving trivial failures in transaction signing.
+
 ## 1.3.0 (2020-01-22)
 
 `boh` now supports the Pact [Signing
