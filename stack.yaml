@@ -1,4 +1,4 @@
-resolver: lts-14.18
+resolver: lts-14.21
 
 ghc-options: {"$locals": -ddump-to-file -ddump-hi}
 
@@ -12,7 +12,7 @@ extra-deps:
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: ce5f0f1afed8c3784660ee4daa819e9b03ad05f9
+    commit: 7c493deb9bf8d2e3a0b044ba5d49ebac3bd93492
   - github: kadena-io/signing-api
-    commit: 376e8093b24cacf609059153f52894ffe79f45fd
+    commit: 444e3dfab282c68ea4cb7734c51e1d38ead93ca1
     subdirs: [kadena-signing-api]

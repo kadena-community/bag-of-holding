@@ -1,6 +1,5 @@
-{-# LANGUAGE DerivingStrategies         #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE TypeApplications   #-}
 
 -- |
 -- Module: Holding.Chainweb

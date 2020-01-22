@@ -209,10 +209,9 @@ newtype Account = Account Text deriving (Generic)
 
 -- TODO Make the `GasLimit` an argument for the signing API.
 -- | To feed to the `transaction` function.
-meta :: Account -> P.ChainId -> IO P.PublicMeta
-meta (Account t) c = P.PublicMeta c t gl gp (P.TTLSeconds 3600) <$> txTime
+meta :: Account -> P.ChainId -> P.GasLimit -> IO P.PublicMeta
+meta (Account t) c gl = P.PublicMeta c t gl gp (P.TTLSeconds 3600) <$> txTime
   where
-    gl = P.GasLimit 600
     gp = P.GasPrice 0.00001
 
 txTime :: IO P.TxCreationTime
