@@ -26,7 +26,7 @@ module Holding
   , Account(..)
   , meta
   , txTime
-  , Receipt
+  , Receipt(..)
   , prettyReceipt
   , TXResult(..)
   , pactValue

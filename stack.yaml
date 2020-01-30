@@ -12,7 +12,7 @@ extra-deps:
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: 7c493deb9bf8d2e3a0b044ba5d49ebac3bd93492
+    commit: 8985ec8d0231306b1456744056d30767ae236e28
   - github: kadena-io/signing-api
-    commit: 444e3dfab282c68ea4cb7734c51e1d38ead93ca1
+    commit: 68075be0ba5a1c361ca8416ae993cff42374fdd3
     subdirs: [kadena-signing-api]

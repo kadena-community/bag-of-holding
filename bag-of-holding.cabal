@@ -57,7 +57,7 @@ executable boh
   main-is:        BOH.hs
   other-modules:
     BOH.CLI
-    BOH.Listen
+    BOH.Poll
     BOH.Signing
     BOH.UI
 

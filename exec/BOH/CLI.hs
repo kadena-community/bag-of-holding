@@ -5,6 +5,7 @@ module BOH.CLI
   ( Command(..), pCommand
   , Env(..), env
   , UIArgs(..)
+  , ListenArgs(..)
   ) where
 
 import           Brick.BChan (BChan, newBChan)
