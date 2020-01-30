@@ -24,12 +24,21 @@ import           Servant.Client
 
 ---
 
-data Command = KeyGen | UI UIArgs
+data Command = KeyGen | UI UIArgs | Listen ListenArgs
 
 pCommand :: Parser Command
 pCommand = hsubparser
   $  command "keys"   (info (pure KeyGen)  (progDesc "Generate public/private key pair"))
   <> command "wallet" (info (UI <$> pArgs) (progDesc "Open the Bag of Holding Wallet UI"))
+  <> command "listen" (info (Listen <$> pListenArgs) (progDesc "Get the result of a /listen call"))
+
+data ListenArgs = ListenArgs ChainwebVersion BaseUrl Text
+
+pListenArgs :: Parser ListenArgs
+pListenArgs = ListenArgs
+  <$> pVersion
+  <*> pUrl
+  <*> strOption (long "hash" <> help "Request key for which to query the result")
 
 -- | Wallet UI arguments.
 data UIArgs = UIArgs ChainwebVersion FilePath Account BaseUrl
