@@ -4,7 +4,7 @@
 module Main ( main ) where
 
 import           BOH.CLI (Command(..), Env(..), env, pCommand)
-import           BOH.Poll (listenOnKey)
+import           BOH.Poll (pollOnKey)
 import           BOH.Signing (signApp)
 import           BOH.UI
 import           Brick (customMain)
@@ -27,7 +27,7 @@ import           Text.Printf (printf)
 main :: IO ()
 main = execParser opts >>= \case
   KeyGen -> keys >>= BL.putStrLn . encodePretty
-  Listen arg -> listenOnKey arg
+  Listen arg -> pollOnKey arg
   UI arg -> env arg >>= \case
     Left err -> printf "%s\n" err
     Right e -> do

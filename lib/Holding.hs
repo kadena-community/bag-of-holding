@@ -54,6 +54,7 @@ module Holding
 
 import           Control.Error.Util (hush)
 import           Data.Aeson
+import           Data.Aeson.Encode.Pretty (encodePretty)
 import           Data.Aeson.Types (prependFailure, typeMismatch)
 import           Data.Decimal (Decimal, decimalPlaces)
 import           Data.Generics.Sum.Constructors (_Ctor)
@@ -61,7 +62,7 @@ import           Data.Generics.Wrapped (_Unwrapped)
 import           Data.Text.Prettyprint.Doc (defaultLayoutOptions, layoutPretty)
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
-import           Data.Yaml.Pretty (defConfig, encodePretty)
+import qualified Data.Yaml.Pretty as Y
 import           Holding.Chainweb
 import           Lens.Micro (SimpleFold, Traversal', _Right)
 import qualified Pact.ApiReq as P
@@ -76,6 +77,7 @@ import qualified Pact.Types.PactValue as P
 import qualified Pact.Types.Pretty as P
 import qualified Pact.Types.Runtime as P
 import           RIO hiding (local, poll)
+import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.HashMap as HM
 import qualified RIO.NonEmpty as NEL
 import qualified RIO.Text as T
@@ -219,7 +221,7 @@ txTime = fromInteger . round <$> getPOSIXTime
 -- | Confirmation that a `Transaction` has been accepted by the network. This
 -- can be used again as input to other calls to inspect the final results of
 -- that `Transaction`.
-newtype Receipt = Receipt P.RequestKey deriving stock (Generic)
+newtype Receipt = Receipt P.RequestKey deriving stock (Show, Generic)
 
 newtype Receipts = Receipts (NonEmpty P.RequestKey) deriving stock (Generic)
 
@@ -355,4 +357,4 @@ cute = renderStrict . layoutPretty defaultLayoutOptions
 
 -- | Pretty-render a JSON value as strict `Text`.
 tencode :: ToJSON a => a -> Text
-tencode = T.decodeUtf8With lenientDecode . encodePretty defConfig
+tencode = T.decodeUtf8With lenientDecode . Y.encodePretty Y.defConfig
