@@ -27,7 +27,7 @@ import           Text.Printf (printf)
 main :: IO ()
 main = execParser opts >>= \case
   KeyGen -> keys >>= BL.putStrLn . encodePretty
-  Listen arg -> pollOnKey arg
+  Poll arg -> pollOnKey arg
   UI arg -> env arg >>= \case
     Left err -> printf "%s\n" err
     Right e -> do

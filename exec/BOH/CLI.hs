@@ -5,7 +5,7 @@ module BOH.CLI
   ( Command(..), pCommand
   , Env(..), env
   , UIArgs(..)
-  , ListenArgs(..)
+  , PollArgs(..)
   ) where
 
 import           Brick.BChan (BChan, newBChan)
@@ -27,18 +27,18 @@ import           Servant.Client
 
 ---
 
-data Command = KeyGen | UI UIArgs | Listen ListenArgs
+data Command = KeyGen | UI UIArgs | Poll PollArgs
 
 pCommand :: Parser Command
 pCommand = hsubparser
   $  command "keys"   (info (pure KeyGen)  (progDesc "Generate public/private key pair"))
   <> command "wallet" (info (UI <$> pArgs) (progDesc "Open the Bag of Holding Wallet UI"))
-  <> command "poll"   (info (Listen <$> pListenArgs) (progDesc "Get the result of a /listen call"))
+  <> command "poll"   (info (Poll <$> pPollArgs) (progDesc "Get the result of a /listen call"))
 
-data ListenArgs = ListenArgs ChainwebVersion BaseUrl P.ChainId BL.ByteString
+data PollArgs = PollArgs ChainwebVersion BaseUrl P.ChainId BL.ByteString
 
-pListenArgs :: Parser ListenArgs
-pListenArgs = ListenArgs
+pPollArgs :: Parser PollArgs
+pPollArgs = PollArgs
   <$> pVersion
   <*> pUrl
   <*> strOption (long "chain" <> help "Chain that the transaction was sent to")

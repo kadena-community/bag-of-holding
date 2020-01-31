@@ -54,7 +54,6 @@ module Holding
 
 import           Control.Error.Util (hush)
 import           Data.Aeson
-import           Data.Aeson.Encode.Pretty (encodePretty)
 import           Data.Aeson.Types (prependFailure, typeMismatch)
 import           Data.Decimal (Decimal, decimalPlaces)
 import           Data.Generics.Sum.Constructors (_Ctor)
@@ -77,7 +76,6 @@ import qualified Pact.Types.PactValue as P
 import qualified Pact.Types.Pretty as P
 import qualified Pact.Types.Runtime as P
 import           RIO hiding (local, poll)
-import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.HashMap as HM
 import qualified RIO.NonEmpty as NEL
 import qualified RIO.Text as T
