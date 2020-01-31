@@ -26,7 +26,7 @@ module Holding
   , Account(..)
   , meta
   , txTime
-  , Receipt
+  , Receipt(..)
   , prettyReceipt
   , TXResult(..)
   , pactValue
@@ -61,7 +61,7 @@ import           Data.Generics.Wrapped (_Unwrapped)
 import           Data.Text.Prettyprint.Doc (defaultLayoutOptions, layoutPretty)
 import           Data.Text.Prettyprint.Doc.Render.Text (renderStrict)
 import           Data.Time.Clock.POSIX (getPOSIXTime)
-import           Data.Yaml.Pretty (defConfig, encodePretty)
+import qualified Data.Yaml.Pretty as Y
 import           Holding.Chainweb
 import           Lens.Micro (SimpleFold, Traversal', _Right)
 import qualified Pact.ApiReq as P
@@ -219,7 +219,7 @@ txTime = fromInteger . round <$> getPOSIXTime
 -- | Confirmation that a `Transaction` has been accepted by the network. This
 -- can be used again as input to other calls to inspect the final results of
 -- that `Transaction`.
-newtype Receipt = Receipt P.RequestKey deriving stock (Generic)
+newtype Receipt = Receipt P.RequestKey deriving stock (Show, Generic)
 
 newtype Receipts = Receipts (NonEmpty P.RequestKey) deriving stock (Generic)
 
@@ -355,4 +355,4 @@ cute = renderStrict . layoutPretty defaultLayoutOptions
 
 -- | Pretty-render a JSON value as strict `Text`.
 tencode :: ToJSON a => a -> Text
-tencode = T.decodeUtf8With lenientDecode . encodePretty defConfig
+tencode = T.decodeUtf8With lenientDecode . Y.encodePretty Y.defConfig

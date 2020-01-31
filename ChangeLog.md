@@ -1,5 +1,30 @@
 # Changelog for Bag of Holding
 
+## 1.4.0 (2020-01-31)
+
+**New Command:** `boh poll` to easily query the result of a Transaction.
+
+```bash
+$ boh poll --node=tetsu.fosskers.ca:443 --chain=0 --tx=Y5yIaENtp5jS_-B3cjmoxdW3HkpDp3d6lRuF0C2sZb0
+{
+    "gas": 757,
+    "result": {
+        "status": "success",
+        "data": "Write succeeded"
+    },
+    "reqKey": "Y5yIaENtp5jS_-B3cjmoxdW3HkpDp3d6lRuF0C2sZb0",
+    "logs": "avgF5JhbUNCCbnySkpfYSm17ft-Pk4gtAW1JIBee950",
+    "metaData": {
+        "blockTime": 1580421471913670,
+        "prevBlockHash": "jsL8JMWon6CbxOb8KFX0zkW2q9_kPEzdGbFNw_klIPs",
+        "blockHash": "PQ5J4vxzV_14tBYqk1p0tNeq5l_-J0BU02VFq7nXL_Y",
+        "blockHeight": 268343
+    },
+    "continuation": null,
+    "txId": 318001
+}
+```
+
 ## 1.3.1 (2020-01-22)
 
 Fixed a bug involving trivial failures in transaction signing.

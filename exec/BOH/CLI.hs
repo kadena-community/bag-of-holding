@@ -5,6 +5,7 @@ module BOH.CLI
   ( Command(..), pCommand
   , Env(..), env
   , UIArgs(..)
+  , PollArgs(..)
   ) where
 
 import           Brick.BChan (BChan, newBChan)
@@ -17,19 +18,31 @@ import qualified Kadena.SigningApi as K
 import           Network.HTTP.Client (newManager)
 import           Network.HTTP.Client.TLS (tlsManagerSettings)
 import           Options.Applicative hiding (footer, header, str)
+import qualified Pact.Types.ChainId as P
 import           RIO
+import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.List as L
 import qualified RIO.Text as T
 import           Servant.Client
 
 ---
 
-data Command = KeyGen | UI UIArgs
+data Command = KeyGen | UI UIArgs | Poll PollArgs
 
 pCommand :: Parser Command
 pCommand = hsubparser
   $  command "keys"   (info (pure KeyGen)  (progDesc "Generate public/private key pair"))
   <> command "wallet" (info (UI <$> pArgs) (progDesc "Open the Bag of Holding Wallet UI"))
+  <> command "poll"   (info (Poll <$> pPollArgs) (progDesc "Get the result of a /listen call"))
+
+data PollArgs = PollArgs ChainwebVersion BaseUrl P.ChainId BL.ByteString
+
+pPollArgs :: Parser PollArgs
+pPollArgs = PollArgs
+  <$> pVersion
+  <*> pUrl
+  <*> strOption (long "chain" <> help "Chain that the transaction was sent to")
+  <*> strOption (long "tx"    <> help "Transaction ID for which to query the result")
 
 -- | Wallet UI arguments.
 data UIArgs = UIArgs ChainwebVersion FilePath Account BaseUrl
