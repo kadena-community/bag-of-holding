@@ -1,5 +1,10 @@
 # Changelog for Bag of Holding
 
+## 1.4.1 (2020-01-31)
+
+`boh poll` now takes any number of transaction IDs as raw arguments, and
+processes them all. The `--tx` flag is no longer needed.
+
 ## 1.4.0 (2020-01-31)
 
 **New Command:** `boh poll` to easily query the result of a Transaction.

@@ -35,14 +35,14 @@ pCommand = hsubparser
   <> command "wallet" (info (UI <$> pArgs) (progDesc "Open the Bag of Holding Wallet UI"))
   <> command "poll"   (info (Poll <$> pPollArgs) (progDesc "Get the result of a /listen call"))
 
-data PollArgs = PollArgs ChainwebVersion BaseUrl P.ChainId BL.ByteString
+data PollArgs = PollArgs ChainwebVersion BaseUrl P.ChainId [BL.ByteString]
 
 pPollArgs :: Parser PollArgs
 pPollArgs = PollArgs
   <$> pVersion
   <*> pUrl
   <*> strOption (long "chain" <> help "Chain that the transaction was sent to")
-  <*> strOption (long "tx"    <> help "Transaction ID for which to query the result")
+  <*> some (strArgument (metavar "TXID" <> help "Transaction ID for which to query the result."))
 
 -- | Wallet UI arguments.
 data UIArgs = UIArgs ChainwebVersion FilePath Account BaseUrl
