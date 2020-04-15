@@ -45,9 +45,9 @@ library
 
   build-depends:
     , Decimal        ^>=0.5
-    , prettyprinter  ^>=1.2
+    , prettyprinter  >=1.2 && < 1.7
     , servant        ^>=0.16
-    , time           ^>=1.8
+    , time           >=1.8 && < 1.10
     , yaml           ^>=0.11
 
 executable boh
@@ -63,12 +63,12 @@ executable boh
 
   build-depends:
     , bag-of-holding
-    , brick                 >=0.47 && <0.50
+    , brick                 >=0.47 && <0.53
     , http-client           ^>=0.6
     , http-client-tls       ^>=0.3
     , kadena-signing-api    ^>=0.1
-    , optparse-applicative  ^>=0.14
-    , pretty-simple         ^>=2.2
+    , optparse-applicative  >=0.14 && < 0.16
+    , pretty-simple         >=2.2 && < 3.3
     , servant-server        ^>=0.16
     , transformers          ^>=0.5
     , vty                   >=5.25

@@ -10,6 +10,11 @@ jobs:
     name: CI
     runs-on: ubuntu-latest
     steps:
+      - name: Setup GHC
+        uses: actions/setup-haskell@v1
+        with:
+          ghc-version: "8.8.3"
+
       - name: Setup Stack
         uses: mstksg/setup-stack@v1
 
@@ -25,4 +30,4 @@ jobs:
             ${{ runner.os }}-
 
       - name: Build and run tests
-        run: "stack test --fast --no-terminal"
+        run: "stack test --fast --no-terminal --system-ghc"

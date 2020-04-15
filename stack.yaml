@@ -1,18 +1,19 @@
-resolver: lts-14.27
+resolver: lts-15.8
 
-ghc-options: {"$locals": -ddump-to-file -ddump-hi}
+ghc-options: {"$locals": -fwrite-ide-info}
 
 extra-deps:
   # --- Transitive Pact Dependencies --- #
+  - direct-sqlite-2.3.26
   - ed25519-donna-0.1.1
-  - sbv-8.2
-  - trifecta-2.1
+  - prettyprinter-1.6.0
+  - sbv-8.6
   - github: kadena-io/thyme
     commit: 6ee9fcb026ebdb49b810802a981d166680d867c9
 
   # --- Custom Pins --- #
   - github: kadena-io/pact
-    commit: ace18a2489bf86595af09316bd1c09794c326b77
+    commit: 3479b2f7f9d5cb19043baace614ea3539c429ed0
   - github: kadena-io/signing-api
-    commit: 68075be0ba5a1c361ca8416ae993cff42374fdd3
+    commit: bba10d2d561d823774a78af706d72d5fca465766
     subdirs: [kadena-signing-api]
