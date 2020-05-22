@@ -52,9 +52,7 @@ import           RIO.Char (isLatin1)
 import qualified RIO.List as L
 import qualified RIO.Seq as Seq
 import qualified RIO.Text as T
-import qualified RIO.Text.Lazy as TL
 import           Servant.Client
-import           Text.Pretty.Simple (pShowNoColor)
 import           Text.Printf (printf)
 
 --------------------------------------------------------------------------------
@@ -227,14 +225,24 @@ draw e w = dispatch <> [ui]
     right :: Widget Name
     right = B.borderWithLabel (txt " Transaction Result ") $ contents <=> fill ' '
       where
+        body :: Response -> Text
+        body = decodeUtf8Lenient . toStrictBytes . responseBody
+
         contents :: Widget Name
         contents = case w ^? from of
           Nothing         -> txt "Select a Transaction."
           Just (TX _ eef) -> case eef of
-            Left err    -> txt . TL.toStrict $ pShowNoColor err
+            Left err    -> txt . maybe "Connection Error" body $ errResp err
             Right (T t) -> txt . tencode $ txr t
             Right (R r) -> vBox [ txt $ prettyReceipt r
                                 , padTop (Pad 1) $ txt "Press [Enter] to query the result." ]
+
+errResp :: ClientError -> Maybe Response
+errResp (ConnectionError _)          = Nothing
+errResp (FailureResponse _ r)        = Just r
+errResp (DecodeFailure _ r)          = Just r
+errResp (UnsupportedContentType _ r) = Just r
+errResp (InvalidContentTypeHeader r) = Just r
 
 header :: Widget a
 header = vLimit 1 . C.center $ txt " The Bag of Holding "

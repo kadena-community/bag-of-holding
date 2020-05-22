@@ -3,4 +3,5 @@
 .ghc.environment.*
 dist
 dist-newstyle
-
+*.hie
+stack.yaml.lock
